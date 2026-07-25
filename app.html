@@ -485,6 +485,25 @@ tr.bad td{background:#9e2b2510}
 
 <script>
 /* =========================================================
+   ▼▼▼  SETTINGS — the only part you need to edit  ▼▼▼
+
+   Where should problem reports go? Fill in either, both, or
+   neither. Leave a line as "" and its button stays hidden.
+========================================================= */
+
+const FEEDBACK = {
+  email:  "",
+  issues: "https://github.com/soroushnajar-arch/signature/issues/new"
+};
+
+const VERSION = "1.1";   // bump this when you change anything
+
+/* =========================================================
+   ▲▲▲  END OF SETTINGS — nothing below needs editing  ▲▲▲
+========================================================= */
+
+
+/* =========================================================
    setup check — the three libraries live in ./lib
 ========================================================= */
 (function(){
@@ -1694,14 +1713,7 @@ $("#x-zip").onclick = async () => {
 
 /* =========================================================
    problem reports
-   Fill these two in before you publish, or only "Copy" shows.
 ========================================================= */
-const FEEDBACK = {
-  email: "",   // e.g. "you@example.com"
-  issues: ""   // e.g. "https://github.com/you/signature/issues/new"
-};
-const VERSION = "1.1";
-
 function diagnostics(){
   const L = [];
   const add = (k,v) => L.push(k.padEnd(22) + v);
