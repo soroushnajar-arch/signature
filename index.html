@@ -1,0 +1,242 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signature — it actually works</title>
+<meta name="description" content="Cut a long book into labelled parts that fit in a chat window. One HTML file, runs in your browser, nothing uploaded.">
+
+<style>
+:root{
+  --paper:#e7e4db; --card:#f6f5f1; --ink:#15181c; --ink-2:#4a5058; --ink-3:#7d838c;
+  --rule:#cfcbc0; --lapis:#23428f; --rubric:#9e2b25; --gold:#a6791f;
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+.wrap{max-width:980px;margin:0 auto;padding:0 26px}
+a{color:var(--lapis)}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);display:block}
+
+/* nav */
+nav{display:flex;align-items:baseline;justify-content:space-between;padding:22px 0;border-bottom:1px solid var(--rule)}
+.mark{font-family:var(--display);font-size:21px;letter-spacing:-.01em}
+.mark span{color:var(--rubric)}
+.cta{
+  display:inline-block;font:inherit;text-decoration:none;background:var(--ink);color:var(--card);
+  padding:9px 18px;border-radius:2px;border:1px solid var(--ink);transition:.14s;
+}
+.cta:hover{background:#000}
+.cta.big{font-size:16px;padding:13px 26px}
+.cta.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+.cta.ghost:hover{background:#0000000d;border-color:var(--ink)}
+:focus-visible{outline:2px solid var(--lapis);outline-offset:3px}
+
+/* hero */
+.hero{padding:78px 0 24px}
+h1{
+  font-family:var(--display);font-weight:400;font-size:clamp(52px,10.5vw,116px);line-height:.92;
+  letter-spacing:-.028em;margin:16px 0 0;
+}
+h1 em{font-style:italic;color:var(--rubric)}
+.lede{font-size:18px;line-height:1.5;color:var(--ink-2);max-width:53ch;margin:26px 0 0}
+.lede b{color:var(--ink);font-weight:500}
+.herobtns{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:30px}
+.fineprint{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:.04em}
+
+/* demo band */
+.demo{margin:56px 0 0;padding:26px 0 0;border-top:1px solid var(--rule)}
+.demo-cap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.demo-cap p{margin:0;font-family:var(--mono);font-size:11px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase}
+svg.band{width:100%;height:auto;display:block}
+
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:translateY(0)}}
+@keyframes cut{from{stroke-dashoffset:52}to{stroke-dashoffset:0}}
+.b-base{animation:fade .5s both .1s}
+.tick{animation:rise .45s both}
+.knife{stroke-dasharray:52;animation:cut .34s both cubic-bezier(.6,0,.3,1)}
+.seg{animation:fade .4s both}
+.segno{animation:rise .4s both}
+@media (prefers-reduced-motion:reduce){
+  .b-base,.tick,.knife,.seg,.segno{animation:none!important;stroke-dashoffset:0!important;opacity:1!important;transform:none!important}
+}
+
+/* sections */
+section{padding:62px 0;border-top:1px solid var(--rule)}
+h2{font-family:var(--display);font-weight:400;font-size:30px;letter-spacing:-.012em;margin:10px 0 0}
+.sec-lede{color:var(--ink-2);max-width:56ch;margin:12px 0 0}
+
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:30px;margin-top:34px}
+.step h3{font-family:var(--display);font-weight:400;font-size:19px;margin:8px 0 6px}
+.step p{margin:0;color:var(--ink-2);font-size:14px}
+.step .n{font-family:var(--mono);font-size:11px;color:var(--gold);letter-spacing:.14em}
+
+/* honesty list */
+.nots{margin-top:34px;display:grid;gap:0}
+.not{display:grid;grid-template-columns:22px 1fr;gap:16px;padding:18px 0;border-bottom:1px solid var(--rule)}
+.not:first-child{border-top:1px solid var(--rule)}
+.not .x{font-family:var(--display);font-size:19px;color:var(--rubric);line-height:1.1}
+.not h4{margin:0 0 4px;font-size:15px;font-weight:500}
+.not p{margin:0;color:var(--ink-2);font-size:14px;max-width:62ch}
+
+/* closing */
+.close{text-align:center;padding:74px 0}
+.close p{font-family:var(--display);font-size:24px;color:var(--ink-2);max-width:30ch;margin:0 auto 28px;line-height:1.35}
+footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+
+@media (max-width:600px){
+  .hero{padding:52px 0 16px}
+  .lede{font-size:16px}
+  section{padding:46px 0}
+}
+</style>
+
+<div class="wrap">
+
+<nav>
+  <div class="mark">Signature<span>.</span></div>
+  <a class="cta" href="app.html">Open the splitter</a>
+</nav>
+
+<div class="hero">
+  <span class="eyebrow">Cuts long books into parts a chat can hold</span>
+  <h1>It <em>actually</em><br>works.</h1>
+  <p class="lede">Drop in a 900-page PDF. Get back numbered files, cut at the <b>chapter breaks</b> rather than every 5,000 characters, each one labelled with the pages it came from and the parts on either side of it.</p>
+  <div class="herobtns">
+    <a class="cta big" href="app.html">Open the splitter</a>
+    <span class="fineprint">no account &middot; no upload &middot; one HTML file</span>
+  </div>
+</div>
+
+<!-- ============ the demonstration ============ -->
+<div class="demo">
+  <div class="demo-cap">
+    <p>One book &rarr; six labelled parts</p>
+    <p>chapter marks in red</p>
+  </div>
+  <svg class="band" viewBox="0 0 1000 118" preserveAspectRatio="xMidYMid meet" role="img" aria-label="A book shown as a bar, marked at its chapter headings, then cut into six numbered parts.">
+    <!-- the whole book -->
+    <rect class="b-base" x="0" y="34" width="1000" height="34" fill="var(--rule)"/>
+
+    <!-- chapter ticks -->
+    <g stroke="var(--rubric)" stroke-linecap="square">
+      <line class="tick" style="animation-delay:.62s" x1="2"   y1="16" x2="2"   y2="34" stroke-width="2.4"/>
+      <line class="tick" style="animation-delay:.70s" x1="168" y1="16" x2="168" y2="34" stroke-width="2.4"/>
+      <line class="tick" style="animation-delay:.78s" x1="255" y1="22" x2="255" y2="34" stroke-width="1.2"/>
+      <line class="tick" style="animation-delay:.86s" x1="336" y1="16" x2="336" y2="34" stroke-width="2.4"/>
+      <line class="tick" style="animation-delay:.94s" x1="452" y1="22" x2="452" y2="34" stroke-width="1.2"/>
+      <line class="tick" style="animation-delay:1.02s" x1="521" y1="16" x2="521" y2="34" stroke-width="2.4"/>
+      <line class="tick" style="animation-delay:1.10s" x1="655" y1="22" x2="655" y2="34" stroke-width="1.2"/>
+      <line class="tick" style="animation-delay:1.18s" x1="708" y1="16" x2="708" y2="34" stroke-width="2.4"/>
+      <line class="tick" style="animation-delay:1.26s" x1="861" y1="16" x2="861" y2="34" stroke-width="2.4"/>
+    </g>
+
+    <!-- the cuts -->
+    <g stroke="var(--ink)" stroke-width="1.2">
+      <line class="knife" style="animation-delay:1.52s" x1="168" y1="26" x2="168" y2="78"/>
+      <line class="knife" style="animation-delay:1.60s" x1="336" y1="26" x2="336" y2="78"/>
+      <line class="knife" style="animation-delay:1.68s" x1="521" y1="26" x2="521" y2="78"/>
+      <line class="knife" style="animation-delay:1.76s" x1="708" y1="26" x2="708" y2="78"/>
+      <line class="knife" style="animation-delay:1.84s" x1="861" y1="26" x2="861" y2="78"/>
+    </g>
+
+    <!-- the parts -->
+    <g fill="var(--lapis)">
+      <rect class="seg" style="animation-delay:2.06s" x="1"   y="34" width="164" height="34"/>
+      <rect class="seg" style="animation-delay:2.14s" x="171" y="34" width="162" height="34"/>
+      <rect class="seg" style="animation-delay:2.22s" x="339" y="34" width="179" height="34"/>
+      <rect class="seg" style="animation-delay:2.30s" x="524" y="34" width="181" height="34"/>
+      <rect class="seg" style="animation-delay:2.38s" x="711" y="34" width="147" height="34"/>
+      <rect class="seg" style="animation-delay:2.46s" x="864" y="34" width="135" height="34"/>
+    </g>
+
+    <!-- labels -->
+    <g font-family="ui-monospace,monospace" font-size="11" fill="var(--ink-3)" text-anchor="middle">
+      <text class="segno" style="animation-delay:2.62s" x="83"  y="88">01 &middot; pp. 1–44</text>
+      <text class="segno" style="animation-delay:2.70s" x="252" y="88">02 &middot; pp. 45–88</text>
+      <text class="segno" style="animation-delay:2.78s" x="428" y="88">03 &middot; pp. 89–137</text>
+      <text class="segno" style="animation-delay:2.86s" x="614" y="88">04 &middot; pp. 138–186</text>
+      <text class="segno" style="animation-delay:2.94s" x="784" y="88">05 &middot; pp. 187–226</text>
+      <text class="segno" style="animation-delay:3.02s" x="931" y="88">06 &middot; pp. 227–262</text>
+    </g>
+    <g font-family="ui-monospace,monospace" font-size="10.5" fill="var(--ink-3)">
+      <text class="segno" style="animation-delay:3.14s" x="0" y="112">start of the book</text>
+      <text class="segno" style="animation-delay:3.14s" x="1000" y="112" text-anchor="end">end</text>
+    </g>
+  </svg>
+</div>
+
+<!-- ============ three steps ============ -->
+<section>
+  <span class="eyebrow">Using it</span>
+  <h2>Three steps, about a minute</h2>
+  <p class="sec-lede">There is nothing to learn. Every setting has a sensible default and a sentence next to it explaining what it does.</p>
+  <div class="steps">
+    <div class="step">
+      <span class="n">STEP ONE</span>
+      <h3>Drop the file in</h3>
+      <p>PDF, plain text or Markdown. It reads the pages, finds the chapter headings, and shows you what it found before touching anything.</p>
+    </div>
+    <div class="step">
+      <span class="n">STEP TWO</span>
+      <h3>Choose the cuts</h3>
+      <p>Follow the book's own chapters, or type your own page ranges by hand and name each one. Mix the two if you like — start from the chapters, then correct them.</p>
+    </div>
+    <div class="step">
+      <span class="n">STEP THREE</span>
+      <h3>Download the parts</h3>
+      <p>A ZIP of numbered files plus a contents page. Open one, hand it to a model, and it knows which part it is and what came before.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ honesty ============ -->
+<section>
+  <span class="eyebrow">Before you start</span>
+  <h2>Four things it won't do</h2>
+  <p class="sec-lede">The claim on this page is a small one, so here is the whole of what sits behind it.</p>
+  <div class="nots">
+    <div class="not">
+      <div class="x">&times;</div>
+      <div>
+        <h4>It can't read scanned pages</h4>
+        <p>A scan is a picture of a book, not a book. There is no text to cut. Signature does not do OCR and isn't going to — turning pictures back into text is a separate job, and doing it badly is worse than not doing it at all. Run the file through an OCR tool first. Compressing it doesn't help either, since a model would still be looking at pictures. Meanwhile the splitter can still cut the PDF itself into smaller page-range PDFs.</p>
+      </div>
+    </div>
+    <div class="not">
+      <div class="x">&times;</div>
+      <div>
+        <h4>The size numbers are estimates</h4>
+        <p>Part sizes are worked out from the mix of characters, not a real tokenizer. Expect them to be right within about 15 percent, and leave a little headroom.</p>
+      </div>
+    </div>
+    <div class="not">
+      <div class="x">&times;</div>
+      <div>
+        <h4>Chapter detection guesses, sometimes wrong</h4>
+        <p>When a book carries a real contents list inside the file, it uses that and gets it right. When it doesn't, it infers headings from type size and numbering — and on a busy or badly typeset book it invents headings that aren't there. The splitter says which of the two it's doing, and when it's guessing it tells you so and suggests cutting by hand instead. Every cut can be corrected either way.</p>
+      </div>
+    </div>
+    <div class="not">
+      <div class="x">&times;</div>
+      <div>
+        <h4>It doesn't remember anything</h4>
+        <p>Nothing leaves your machine, which is the point — and also the catch. There is no account and no saved work. Close the tab and the ranges you typed are gone.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ close ============ -->
+<div class="close">
+  <p>Free, and likely to stay that way. There is no server to pay for.</p>
+  <a class="cta big" href="app.html">Open the splitter</a>
+</div>
+
+<footer>
+  <span>Signature &mdash; one HTML file. View source; there is nothing else to it.</span>
+  <span>Runs entirely in your browser</span>
+</footer>
+
+</div>

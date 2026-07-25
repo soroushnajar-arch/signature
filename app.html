@@ -1,0 +1,1808 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signature — split a book into labelled parts</title>
+
+<script src="lib/pdf.min.js"></script>
+<script src="lib/jszip.min.js"></script>
+<script src="lib/pdf-lib.min.js"></script>
+
+<style>
+:root{
+  --paper:#e7e4db;
+  --card:#f6f5f1;
+  --card-2:#efedE6;
+  --ink:#15181c;
+  --ink-2:#4a5058;
+  --ink-3:#7d838c;
+  --rule:#cfcbc0;
+  --lapis:#23428f;
+  --lapis-soft:#dfe4f2;
+  --rubric:#9e2b25;
+  --gold:#a6791f;
+  --ok:#2f6b4f;
+
+  --display:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;
+  --body:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--paper);color:var(--ink);font-family:var(--body);
+  font-size:14px;line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px 96px}
+
+/* ---------- masthead ---------- */
+header.mast{padding:44px 0 22px;border-bottom:1px solid var(--rule)}
+.mast-row{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+h1{
+  font-family:var(--display);font-weight:400;font-size:44px;line-height:1;margin:0;
+  letter-spacing:-.015em;
+}
+h1 em{font-style:italic;color:var(--rubric)}
+.tagline{color:var(--ink-2);max-width:52ch;margin:10px 0 0}
+.mast-note{font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:right;line-height:1.7}
+.mast-note b{color:var(--ink-2);font-weight:500}
+
+/* ---------- generic ---------- */
+.eyebrow{
+  font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);display:block;margin-bottom:10px;
+}
+section{padding:32px 0;border-bottom:1px solid var(--rule)}
+section:last-of-type{border-bottom:0}
+h2{font-family:var(--display);font-weight:400;font-size:24px;margin:0 0 4px}
+.sub{color:var(--ink-2);margin:0 0 20px}
+button{font:inherit;cursor:pointer;border-radius:2px;border:1px solid var(--ink);background:var(--ink);color:var(--card);padding:8px 15px;transition:.12s}
+button:hover{background:#000}
+button:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--lapis);outline-offset:2px}
+button.ghost{background:transparent;color:var(--ink);border-color:var(--rule)}
+button.ghost:hover{border-color:var(--ink);background:#0000000a}
+button.quiet{background:transparent;border:0;color:var(--lapis);padding:4px 6px;text-decoration:underline;text-underline-offset:2px}
+button.quiet:hover{background:#0000000a;color:var(--lapis)}
+button:disabled{opacity:.4;cursor:not-allowed}
+button.danger{background:transparent;border:0;color:var(--rubric);padding:4px 8px;font-size:16px;line-height:1}
+input,select{font:inherit;background:#fff;border:1px solid var(--rule);border-radius:2px;padding:7px 9px;color:var(--ink)}
+input[type=number]{font-family:var(--mono);width:88px}
+textarea{
+  font:inherit;background:#fff;border:1px solid var(--rule);border-radius:2px;padding:10px 12px;
+  color:var(--ink);width:100%;resize:vertical;line-height:1.55;
+}
+#fb-diag{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);background:var(--card)}
+.fb{background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:22px 24px}
+.fb .adv summary{padding-top:0}
+label.field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ink-2)}
+.hint{font-size:11px;line-height:1.45;color:var(--ink-3);max-width:26ch}
+.adv{margin-bottom:26px;border-top:1px solid var(--rule);padding-top:10px}
+.adv summary{
+  cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);padding:6px 0;list-style:none;
+}
+.adv summary::-webkit-details-marker{display:none}
+.adv summary::before{content:"+ ";font-family:var(--mono)}
+.adv[open] summary::before{content:"− "}
+.adv summary:hover{color:var(--ink)}
+.adv .settings{margin-top:12px}
+.pmode{display:inline-flex;border:1px solid var(--rule);border-radius:2px;overflow:hidden}
+.pmode button{
+  background:transparent;color:var(--ink-2);border:0;border-radius:0;padding:7px 13px;font-size:13px;
+}
+.pmode button:hover{background:#0000000a;color:var(--ink)}
+.pmode button[aria-pressed=true]{background:var(--lapis);color:var(--card)}
+.pmode button+button{border-left:1px solid var(--rule)}
+.levels{display:grid;gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin-bottom:26px}
+.lv-row{
+  all:unset;display:grid;grid-template-columns:20px 1fr auto;gap:14px;align-items:center;
+  background:var(--card);padding:13px 16px;cursor:pointer;transition:.12s;
+}
+.lv-row:hover{background:var(--card-2)}
+.lv-row[aria-pressed=true]{background:var(--lapis-soft)}
+.lv-row .dot{width:13px;height:13px;border-radius:50%;border:1px solid var(--ink-3);position:relative}
+.lv-row[aria-pressed=true] .dot{border-color:var(--lapis)}
+.lv-row[aria-pressed=true] .dot::after{
+  content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--lapis);
+}
+.lv-name{font-family:var(--display);font-size:18px;line-height:1.2}
+.lv-name b{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--gold);margin-left:9px;letter-spacing:.04em}
+.lv-eg{display:block;font-family:var(--body);font-size:11.5px;color:var(--ink-3);margin-top:3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:52ch}
+.lv-stat{font-family:var(--mono);font-size:11px;color:var(--ink-3);text-align:right;line-height:1.7}
+.lv-stat .flag{color:var(--rubric)}
+.lv-stat .good{color:var(--ok)}
+.lv-pick{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ok);border:1px solid #2f6b4f44;background:#2f6b4f10;padding:1px 6px;border-radius:2px;margin-left:8px}
+@media (max-width:640px){
+  .lv-row{grid-template-columns:20px 1fr}
+  .lv-stat{grid-column:2;text-align:left}
+}
+.settings{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));
+  gap:20px 22px;align-items:start;margin-bottom:26px;
+  background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:18px 20px;
+}
+.settings input[type=number],.settings select{width:100%}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:3px;overflow:hidden;margin-bottom:26px}
+.step{background:var(--card);padding:14px 18px}
+.step b{font-family:var(--mono);font-size:11px;color:var(--gold);display:block;margin-bottom:4px;letter-spacing:.1em}
+.step p{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.5}
+.step p strong{color:var(--ink);font-weight:500}
+.row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end}
+.mono{font-family:var(--mono)}
+.hide{display:none!important}
+
+/* ---------- drop ---------- */
+#drop{
+  border:1px dashed var(--rule);background:var(--card);border-radius:3px;
+  padding:44px 24px;text-align:center;transition:.15s;
+}
+#drop.over{border-color:var(--lapis);background:var(--lapis-soft)}
+#drop h3{font-family:var(--display);font-weight:400;font-size:22px;margin:0 0 6px}
+#drop p{color:var(--ink-2);margin:0 0 18px}
+
+#loading{font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+#loading .bar{height:2px;background:var(--rule);margin-top:10px;overflow:hidden}
+#loading .bar i{display:block;height:100%;background:var(--lapis);width:0;transition:width .2s}
+
+/* ---------- doc summary ---------- */
+.docbar{display:flex;gap:28px;flex-wrap:wrap;align-items:baseline;background:var(--card);border:1px solid var(--rule);border-radius:3px;padding:14px 18px}
+.stat{display:flex;flex-direction:column}
+.stat b{font-family:var(--mono);font-size:16px;font-weight:500}
+.stat span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.notice{border-left:3px solid var(--rubric);background:#9e2b250d;padding:12px 16px;margin-top:14px}
+.notice b{color:var(--rubric)}
+.notice.info{border-color:var(--lapis);background:#23428f0d}
+.notice.info b{color:var(--lapis)}
+
+/* ---------- band ---------- */
+.band-wrap{margin-top:22px}
+.band-legend{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-top:8px}
+.band-legend i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
+
+/* ---------- tabs ---------- */
+.tabs{display:flex;gap:0;border-bottom:1px solid var(--rule);margin-bottom:24px}
+.tab{
+  background:none;border:0;border-bottom:2px solid transparent;border-radius:0;
+  color:var(--ink-3);padding:10px 2px;margin-right:26px;font-size:14px;
+}
+.tab:hover{background:none;color:var(--ink)}
+.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--rubric)}
+
+/* ---------- outline tree ---------- */
+.tree{background:var(--card);border:1px solid var(--rule);border-radius:3px;max-height:340px;overflow:auto}
+.tnode{display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid #0000000d}
+.tnode:last-child{border-bottom:0}
+.tnode:hover{background:var(--card-2)}
+.tnode .lv{font-family:var(--mono);font-size:10px;color:var(--ink-3);width:18px;flex:none}
+.tnode .ti{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tnode .tp{font-family:var(--mono);font-size:11px;color:var(--ink-3);flex:none}
+.tnode.h1 .ti{font-family:var(--display);font-size:16px;color:var(--rubric)}
+.tnode.h2 .ti{font-weight:500}
+.tnode.h3 .ti{color:var(--ink-2);font-size:13px}
+
+/* ---------- manual table ---------- */
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--rule);border-radius:3px}
+th{
+  text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:400;padding:9px 12px;border-bottom:1px solid var(--rule);
+}
+td{padding:5px 12px;border-bottom:1px solid #0000000d;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td input[type=text]{width:100%;border-color:transparent;background:transparent}
+td input[type=text]:hover{border-color:var(--rule);background:#fff}
+td input[type=text]:focus{border-color:var(--lapis);background:#fff}
+td.num{width:110px}
+td.act{width:44px;text-align:right}
+tr.bad td{background:#9e2b2510}
+.empty{padding:26px;text-align:center;color:var(--ink-3);background:var(--card);border:1px dashed var(--rule);border-radius:3px}
+
+/* ---------- parts ---------- */
+.parts{display:grid;gap:12px;margin-top:20px}
+.part{
+  background:var(--card);border:1px solid var(--rule);border-left:3px solid var(--lapis);
+  border-radius:3px;padding:13px 16px;display:grid;
+  grid-template-columns:auto 1fr auto;gap:16px;align-items:center;
+}
+.part.over{border-left-color:var(--rubric)}
+.part.tiny{border-left-color:var(--ink-3)}
+.part .no{font-family:var(--mono);font-size:20px;color:var(--gold);letter-spacing:-.02em}
+.part .t{font-family:var(--display);font-size:17px;margin:0}
+.part .p{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:3px 0 0}
+.part .p b{color:var(--ink-2);font-weight:500}
+.part .inner{margin:2px 0 0;font-size:12.5px;color:var(--ink-2);font-style:italic}
+.part .why{margin:7px 0 0}
+.tag{
+  display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+  text-transform:uppercase;padding:2px 7px;border-radius:2px;
+  color:var(--lapis);background:var(--lapis-soft);border:1px solid #23428f2e;
+}
+.tag.size{color:var(--rubric);background:#9e2b2512;border-color:#9e2b252e}
+.tag.hand{color:var(--gold);background:#a6791f14;border-color:#a6791f33}
+.part .acts{display:flex;gap:4px;align-items:center}
+.part-body{grid-column:1/-1;background:#fff;border:1px solid var(--rule);padding:14px 16px;max-height:280px;overflow:auto;white-space:pre-wrap;font-size:13px;line-height:1.65;color:var(--ink-2)}
+
+.exportbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--rule)}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--card);padding:10px 20px;border-radius:2px;font-family:var(--mono);font-size:12px;opacity:0;transition:.2s;pointer-events:none;z-index:50}
+.toast.on{opacity:1;transform:translateX(-50%)}
+
+@media (max-width:640px){
+  h1{font-size:32px}
+  .wrap{padding:0 16px 64px}
+  .mast-note{text-align:left}
+  .part{grid-template-columns:auto 1fr;}
+  .part .acts{grid-column:1/-1}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="mast">
+  <div class="mast-row">
+    <div>
+      <h1>Signature<em>.</em></h1>
+      <p class="tagline">Cut a long document into labelled parts that fit in a model's context — along its own chapter boundaries, or along ranges you set by hand.</p>
+    </div>
+    <div class="mast-note">
+      runs in <b>this browser</b><br>
+      nothing is uploaded<br>
+      pdf &middot; txt &middot; md
+    </div>
+  </div>
+</header>
+
+<!-- ============ 1. SOURCE ============ -->
+<section>
+  <span class="eyebrow">One — Source</span>
+  <div class="steps">
+    <div class="step"><b>WHY</b><p>A long book won't fit in one chat. Sending it in random slices breaks sentences and loses the thread.</p></div>
+    <div class="step"><b>WHAT THIS DOES</b><p>Cuts the book at its own <strong>chapter boundaries</strong>, and writes on each piece which part it is and which pages it covers.</p></div>
+    <div class="step"><b>WHAT YOU GET</b><p>A folder of numbered files. Hand them to a model one at a time — each one says where it sits in the book.</p></div>
+  </div>
+  <div id="drop">
+    <h3>Drop a PDF, TXT or Markdown file</h3>
+    <p>Or choose one. Large files are fine — the whole thing stays on your machine.</p>
+    <button id="pick">Choose file</button>
+    <input type="file" id="file" accept=".pdf,.txt,.md,.markdown,text/plain" class="hide">
+    <div id="loading" class="hide">
+      <span id="loadmsg">Reading…</span>
+      <div class="bar"><i id="loadbar"></i></div>
+    </div>
+  </div>
+
+  <div id="docinfo" class="hide" style="margin-top:20px">
+    <div class="docbar">
+      <div class="stat"><b id="s-name">—</b><span>File</span></div>
+      <div class="stat"><b id="s-pages">—</b><span>Pages</span></div>
+      <div class="stat"><b id="s-words">—</b><span>Words</span></div>
+      <div class="stat"><b id="s-tokens">—</b><span>Est. tokens</span></div>
+      <div class="stat"><b id="s-outline">—</b><span>Outline entries</span></div>
+      <div style="margin-left:auto"><button class="ghost" id="reset">Use another file</button></div>
+    </div>
+    <div id="scanwarn" class="notice hide">
+      <b>This book has no text layer.</b> The pages are images, so there is nothing to read, label or cut into text.
+      <br><br><b>Signature does not do OCR</b> and there is no plan to add it. Turning pictures of pages back into text
+      is a separate job, and doing it badly is worse than not doing it at all. If you need the text, run the file
+      through an OCR tool first and bring the result back here.
+      <br><br>Compressing the file won't help either — a model would still have to look at every page as a picture.
+      What you <i>can</i> do right now is use <b>Manual ranges</b> below to cut this PDF into smaller PDFs by page range.
+    </div>
+    <div id="offnote" class="notice info hide">
+      <b>The printed page numbers don't match the PDF.</b>
+      <span id="off-say"></span>
+      <div class="row" style="margin-top:10px;gap:18px;align-items:center">
+        <div class="pmode">
+          <button id="pm-printed" aria-pressed="true">Printed page numbers</button><button id="pm-pdf" aria-pressed="false">PDF pages</button>
+        </div>
+        <label class="field" style="gap:4px">Offset
+          <input type="number" id="off-val" style="width:80px">
+        </label>
+        <span class="hint" style="max-width:34ch">Everything below — the ranges you type and the labels you get — uses whichever you pick.</span>
+      </div>
+    </div>
+    <div id="tocnote" class="notice info hide">
+      <b><span id="toc-n"></span></b> look like a table of contents or an index &mdash;
+      <span id="toc-where" class="mono" style="font-size:12px"></span>.
+      These are lists of page numbers rather than prose, so they cost tokens and tell a model nothing.
+      <label style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:13px">
+        <input type="checkbox" id="o-skiptoc" checked style="width:auto"> Leave them out of the parts
+      </label>
+    </div>
+    <div class="notice info" style="margin-top:14px">
+      <b>Reading the bar below.</b> It is the whole file, left to right. Red ticks are the chapter headings that were found.
+      Blue is covered by a part, gold is covered twice, grey is not covered at all.
+      <br><span style="color:var(--ink-3)">A <b>token</b> is roughly three quarters of an English word — a 6,000-token part is about 4,500 words.</span>
+    </div>
+    <div class="band-wrap">
+      <svg id="band" viewBox="0 0 1000 74" preserveAspectRatio="none" style="width:100%;height:74px;display:block"></svg>
+      <div class="band-legend">
+        <span><i style="background:var(--lapis)"></i>part</span>
+        <span><i style="background:var(--rubric)"></i>heading</span>
+        <span><i style="background:var(--gold)"></i>overlap</span>
+        <span><i style="background:var(--rule)"></i>not covered</span>
+        <span><i style="background:var(--ink-3)"></i>contents / index</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 2. CUTTING ============ -->
+<section id="cutsec" class="hide">
+  <span class="eyebrow">Two — Cutting</span>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" id="tab-outline" aria-selected="true">From the outline</button>
+    <button class="tab" role="tab" id="tab-manual" aria-selected="false">Manual ranges</button>
+  </div>
+
+  <!-- outline pane -->
+  <div id="pane-outline">
+    <h2>Cut along the book's own structure</h2>
+    <p class="sub">Headings come from the book's built-in outline when it has one, and are worked out from type size and numbering when it doesn't. Works in any language.</p>
+
+    <div id="nooutline" class="notice hide" style="margin-bottom:24px"></div>
+
+    <div id="levelbox">
+      <span class="eyebrow">What this book is made of</span>
+      <p class="sub" style="margin:0 0 12px">Pick the unit to cut at. Anything still too big is broken down further using the headings inside it.</p>
+      <div class="levels" id="levels"></div>
+      <input type="hidden" id="o-level" value="2">
+    </div>
+
+    <div class="row" style="margin-bottom:8px;align-items:center">
+      <button id="o-run">Rebuild the parts</button>
+      <span class="hint" style="max-width:44ch">Parts are built for you as soon as a file loads. Change anything and press this.</span>
+    </div>
+
+    <details class="adv">
+      <summary>Fine tuning</summary>
+      <div class="settings">
+      <label class="field">Target size
+        <input type="number" id="o-target" value="6000" min="500" step="500">
+        <span class="hint">Roughly how big each part should be, in tokens. 6,000 suits most chats.</span>
+      </label>
+      <label class="field">Hard maximum
+        <input type="number" id="o-max" value="9000" min="600" step="500">
+        <span class="hint">No part goes past this. Anything longer is split at a paragraph break.</span>
+      </label>
+      <label class="field">Overlap
+        <input type="number" id="o-overlap" value="60" min="0" step="10">
+        <span class="hint">Words repeated from the end of one part at the start of the next, so a split sentence still reads.</span>
+      </label>
+      <label class="field" style="gap:8px">
+        <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="o-merge" checked style="width:auto"> Join short chapters</span>
+        <span class="hint">A chapter under half the target size gets attached to the one before it.</span>
+      </label>
+      <div style="display:flex;align-items:flex-start"><button class="ghost" id="o-run2">Rebuild</button></div>
+      </div>
+    </details>
+
+    <div id="treebox">
+      <span class="eyebrow">Detected structure</span>
+      <div class="tree" id="tree"></div>
+    </div>
+    <div id="notree" class="empty hide">This book has no outline and no headings could be worked out from the text, so it has been cut into even parts instead. Switch to manual ranges if you want to place the cuts yourself.</div>
+  </div>
+
+  <!-- manual pane -->
+  <div id="pane-manual" class="hide">
+    <h2>Cut at page ranges you choose</h2>
+    <p class="sub">Name each part and give it a first and last page. Any language — nothing here depends on reading the text. Add as many ranges as you like; they may overlap, and they don't have to cover the whole file.</p>
+
+    <table id="mtable">
+      <thead><tr>
+        <th style="width:38px">#</th><th>Part name</th><th style="width:110px">First page</th><th style="width:110px">Last page</th><th style="width:96px">Est. tokens</th><th style="width:44px"></th>
+      </tr></thead>
+      <tbody id="mbody"></tbody>
+    </table>
+    <div id="mempty" class="empty">No ranges yet. Add one, or fill the file evenly.</div>
+
+    <div class="row" style="margin-top:16px">
+      <button id="m-add">Add a range</button>
+      <button class="ghost" id="m-even">Split evenly into <span id="m-n">10</span></button>
+      <input type="number" id="m-count" value="10" min="2" max="200" style="width:70px">
+      <button class="ghost" id="m-gaps">Add uncovered pages as parts</button>
+      <button class="ghost" id="m-fromoutline">Copy outline parts here</button>
+      <button class="ghost" id="m-clear">Clear all</button>
+    </div>
+    <div id="mwarn" class="notice hide"></div>
+  </div>
+</section>
+
+<!-- ============ 3. PARTS ============ -->
+<section id="partsec" class="hide">
+  <span class="eyebrow">Three — Parts</span>
+  <h2 id="parts-h">Parts</h2>
+  <p class="sub" id="parts-sub"></p>
+  <div class="parts" id="parts"></div>
+
+  <div class="exportbar">
+    <label class="field">Save as
+      <select id="x-format">
+        <option value="md">Markdown files (.md)</option>
+        <option value="txt">Plain text files (.txt)</option>
+        <option value="pdf">PDF page slices (.pdf)</option>
+      </select>
+      <span class="hint">Markdown reads well anywhere. PDF slices keep the original pages, images and all.</span>
+    </label>
+    <label class="field">
+      <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="x-front" checked style="width:auto"> Write the label on each part</span>
+      <span class="hint">A short header saying which part it is, which pages, and what came before.</span>
+    </label>
+    <label class="field">
+      <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="x-index" checked style="width:auto"> Add a contents page</span>
+      <span class="hint">One file listing every part, plus a machine-readable manifest.</span>
+    </label>
+    <div style="margin-left:auto;align-self:flex-start"><button id="x-zip">Download all as ZIP</button></div>
+  </div>
+</section>
+
+<!-- ============ 4. FEEDBACK ============ -->
+<section id="feedback">
+  <span class="eyebrow">Four — Something wrong?</span>
+  <h2>Tell us what broke</h2>
+  <p class="sub">This tool guesses a great deal: where chapters begin, which pages are contents, how the printed numbering lines up. When it guesses wrong on your book, that is worth knowing — the fix is usually small, once someone can see what happened.</p>
+
+  <div class="fb">
+    <label class="field" style="max-width:380px">What went wrong
+      <select id="fb-kind">
+        <option>It cut in the wrong places</option>
+        <option>The chapter titles are wrong or missing</option>
+        <option>The page numbers don't match the book</option>
+        <option>It couldn't open my file</option>
+        <option>Contents or index pages weren't skipped</option>
+        <option>It skipped pages that were real content</option>
+        <option>The download didn't work</option>
+        <option>It was too slow, or the page froze</option>
+        <option>A suggestion rather than a problem</option>
+        <option>Something else</option>
+      </select>
+    </label>
+
+    <label class="field" style="margin-top:18px">What happened
+      <textarea id="fb-text" rows="5" placeholder="What you expected, and what you got instead."></textarea>
+      <span class="hint" style="max-width:62ch">Be as ordinary as you like — "chapter 4 got split in half and the second piece has no title" is a perfect bug report. If it concerns one part, its number helps.</span>
+    </label>
+
+    <details class="adv" id="fb-details" style="border:0;margin:18px 0 0;padding:0">
+      <summary>What gets included</summary>
+      <p class="hint" style="max-width:64ch;margin:8px 0">Nothing leaves this page until you press a button below, and nothing is gathered in the background. No page content, no file name, nothing personal — only numbers describing how the tool behaved. Edit or delete any of it.</p>
+      <textarea id="fb-diag" rows="14" spellcheck="false"></textarea>
+    </details>
+
+    <div class="row" style="margin-top:18px;align-items:center">
+      <button id="fb-copy">Copy the report</button>
+      <button class="ghost hide" id="fb-mail">Send by email</button>
+      <button class="ghost hide" id="fb-issue">Open an issue</button>
+      <span class="hint" id="fb-note" style="max-width:44ch"></span>
+    </div>
+  </div>
+</section>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   setup check — the three libraries live in ./lib
+========================================================= */
+(function(){
+  const missing = [
+    [typeof pdfjsLib === "undefined", "lib/pdf.min.js"],
+    [typeof JSZip    === "undefined", "lib/jszip.min.js"],
+    [typeof PDFLib   === "undefined", "lib/pdf-lib.min.js"]
+  ].filter(x => x[0]).map(x => x[1]);
+  if(!missing.length) return;
+
+  const local = location.protocol === "file:";
+  const d = document.getElementById("drop");
+  d.innerHTML =
+    '<h3 style="color:var(--rubric)">Setup is not finished</h3>' +
+    '<p style="max-width:56ch;margin:0 auto 14px">' +
+      (local
+        ? 'This page was opened straight from disk, so the browser is blocking the libraries it needs. Serve the folder over HTTP instead — in a terminal, from the folder that holds this file:'
+        : 'These files are missing from the <code>lib</code> folder next to this page:') +
+    '</p>' +
+    '<pre style="font-family:var(--mono);font-size:12px;background:#fff;border:1px solid var(--rule);padding:12px 14px;display:inline-block;text-align:left;margin:0 auto">' +
+      (local ? 'python3 -m http.server 8000\n\nthen open  http://localhost:8000/app.html' : missing.join('\n')) +
+    '</pre>' +
+    '<p style="margin:16px auto 0;max-width:56ch;color:var(--ink-3);font-size:13px">' +
+      'Run <code>setup.sh</code> (or <code>setup.ps1</code> on Windows) once to download them, then reload.' +
+    '</p>';
+  throw new Error("Signature: missing libraries — " + missing.join(", "));
+})();
+
+/* =========================================================
+   state
+========================================================= */
+const S = {
+  name: "", ext: "",
+  pdfBytes: null,          // Uint8Array, kept for PDF slicing
+  pages: [],               // [{n, text, chars, tokens}]
+  outline: [],             // [{title, level, page}]
+  outlineSource: "",       // 'bookmarks' | 'detected' | ''
+  parts: [],               // [{title, path, startPage, endPage, text, tokens}]
+  partsMode: "",           // 'outline' | 'manual'
+  manual: [],              // [{id, name, from, to}]
+  hasText: false,
+  mid: 1
+};
+const $ = s => document.querySelector(s);
+const el = (t,c) => { const e=document.createElement(t); if(c) e.className=c; return e; };
+
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(t._x); t._x=setTimeout(()=>t.classList.remove("on"),2200); }
+function estTokens(s){
+  if(!s) return 0;
+  const arabic = (s.match(/[\u0600-\u06FF\u0750-\u077F]/g)||[]).length;
+  const cjk = (s.match(/[\u3000-\u9FFF\uAC00-\uD7AF]/g)||[]).length;
+  const rest = s.length - arabic - cjk;
+  return Math.max(1, Math.round(arabic/1.7 + cjk/1.1 + rest/3.9));
+}
+const fmt = n => n.toLocaleString("en-US");
+function slug(s,i){
+  const b = (s||"part").toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"-").replace(/^-+|-+$/g,"").slice(0,52);
+  return String(i).padStart(3,"0") + "-" + (b||"part");
+}
+
+/* =========================================================
+   file loading
+========================================================= */
+$("#pick").onclick = () => $("#file").click();
+$("#file").onchange = e => { if(e.target.files[0]) load(e.target.files[0]); };
+const drop = $("#drop");
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if(f) load(f); });
+$("#reset").onclick = () => location.reload();
+
+function progress(msg, pct){
+  $("#loading").classList.remove("hide");
+  $("#loadmsg").textContent = msg;
+  $("#loadbar").style.width = (pct==null ? 0 : Math.round(pct*100)) + "%";
+}
+
+async function load(file){
+  S.name = file.name;
+  S.ext = (file.name.split(".").pop()||"").toLowerCase();
+  $("#pick").classList.add("hide");
+  try{
+    if(S.ext === "pdf") await loadPdf(file);
+    else await loadText(file);
+  }catch(err){
+    console.error(err);
+    progress("Could not read this file: " + (err && err.message ? err.message : "unknown error"), 0);
+    $("#pick").classList.remove("hide");
+    return;
+  }
+  $("#loading").classList.add("hide");
+  afterLoad();
+}
+
+async function loadText(file){
+  progress("Reading text…", .3);
+  const raw = await file.text();
+  const clean = raw.replace(/\r\n?/g,"\n");
+  // treat form feeds or ~3000-char blocks as pages so ranges stay meaningful
+  let chunks = clean.split(/\f/);
+  if(chunks.length < 2){
+    chunks = []; const paras = clean.split(/\n{2,}/); let cur="";
+    for(const p of paras){
+      if(cur.length + p.length > 3000 && cur){ chunks.push(cur); cur=""; }
+      cur += (cur?"\n\n":"") + p;
+    }
+    if(cur) chunks.push(cur);
+  }
+  S.pages = chunks.map((t,i)=>({n:i+1, text:t.trim(), chars:t.length, tokens:estTokens(t)}));
+  S.hasText = clean.trim().length > 0;
+  S.outline = detectHeadingsFromText(S.pages);
+  S.outlineSource = S.outline.length ? "detected" : "";
+}
+
+async function loadPdf(file){
+  progress("Opening the PDF…", .02);
+  const buf = await file.arrayBuffer();
+  S.pdfBytes = new Uint8Array(buf.slice(0));
+  pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
+  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+
+  const N = pdf.numPages;
+  const pageLines = [];
+  for(let i=1;i<=N;i++){
+    if(i%5===0 || i===N) progress(`Reading page ${i} of ${N}…`, i/N);
+    const page = await pdf.getPage(i);
+    const vp = page.getViewport({scale:1});
+    const tc = await page.getTextContent();
+    pageLines.push(linesFromItems(tc.items, vp.width));
+    if(i%25===0) await new Promise(r=>setTimeout(r));
+  }
+
+  pageLines.forEach(lines => {
+    lines.headFoot = [lines[0], lines[1], lines[lines.length-1], lines[lines.length-2]]
+      .filter(Boolean).map(l => l.text);
+  });
+  const heads4 = pageLines.map(l => l.headFoot);
+
+  stripRunningLines(pageLines);
+
+  S.pages = pageLines.map((lines,i)=>{
+    const t = joinLines(lines);
+    return { n:i+1, text:t, chars:t.length, tokens:estTokens(t), lines, headFoot: heads4[i] };
+  });
+  S.hasText = S.pages.filter(p=>p.chars>40).length > S.pages.length*0.35;
+
+  // outline: prefer real bookmarks
+  progress("Reading the outline…", 1);
+  let bm = [];
+  try{ bm = await readOutline(pdf); }catch(e){ console.warn(e); }
+  if(bm.length >= 2){ S.outline = bm; S.outlineSource = "bookmarks"; }
+  else {
+    S.outline = detectHeadingsFromLines(S.pages);
+    S.outlineSource = S.outline.length ? "detected" : "";
+  }
+}
+
+/* ---- turn pdf.js text items into lines ---- */
+function linesFromItems(items, pageWidth){
+  const good = items.filter(i => i.str && i.str.trim().length);
+  if(!good.length) return [];
+  const heights = good.map(i => i.height || Math.abs(i.transform[3]) || 10).sort((a,b)=>a-b);
+  const medH = heights[Math.floor(heights.length/2)] || 10;
+  const tol = Math.max(1.6, medH*0.55);
+
+  const sorted = good.slice().sort((a,b)=> b.transform[5]-a.transform[5]);
+  const rows = [];
+  for(const it of sorted){
+    const y = it.transform[5];
+    const last = rows[rows.length-1];
+    if(last && Math.abs(last.y - y) <= tol){ last.items.push(it); last.y = (last.y*last.items.length + y)/(last.items.length+1); }
+    else rows.push({ y, items:[it] });
+  }
+
+  return rows.map(r => {
+    const rtl = /[\u0590-\u08FF]/.test(r.items.map(i=>i.str).join(""));
+    r.items.sort((a,b)=> rtl ? b.transform[4]-a.transform[4] : a.transform[4]-b.transform[4]);
+    let text = "";
+    let prevEnd = null;
+    for(const it of r.items){
+      const x = it.transform[4], w = it.width || 0;
+      const sz = it.height || Math.abs(it.transform[3]) || medH;
+      if(prevEnd !== null){
+        const gap = rtl ? (prevEnd - (x + w)) : (x - prevEnd);
+        if(gap > sz*0.22 && !/\s$/.test(text)) text += " ";
+      }
+      text += it.str;
+      prevEnd = rtl ? x : x + w;
+    }
+    const size = Math.max(...r.items.map(i => i.height || Math.abs(i.transform[3]) || medH));
+    const bold = r.items.some(i => /bold|black|heavy|semib/i.test(i.fontName||""));
+    const xs = r.items.map(i=>i.transform[4]);
+    const right = Math.max(...r.items.map(i => i.transform[4] + (i.width||0)));
+    return { text: text.replace(/\s+/g," ").trim(), size, bold, left: Math.min(...xs), right, width: pageWidth||600 };
+  }).filter(l => l.text.length);
+}
+
+/* ---- drop repeated running heads / feet / page numbers ---- */
+function stripRunningLines(pageLines){
+  if(pageLines.length < 6) return;
+  const norm = s => s.toLowerCase().replace(/\d+/g,"#").replace(/[^\p{L}#]+/gu," ").trim();
+  const tally = new Map();
+  pageLines.forEach(lines => {
+    const cand = [lines[0], lines[1], lines[lines.length-1], lines[lines.length-2]].filter(Boolean);
+    new Set(cand.map(l=>norm(l.text))).forEach(k => { if(k.length<90) tally.set(k,(tally.get(k)||0)+1); });
+  });
+  const thresh = pageLines.length * 0.35;
+  const kill = new Set([...tally].filter(([k,c]) => c>thresh && k.length<90).map(([k])=>k));
+  if(!kill.size) return;
+  pageLines.forEach(lines => {
+    for(const idx of [0,1,lines.length-1,lines.length-2]){
+      const l = lines[idx];
+      if(l && (kill.has(norm(l.text)) || /^[#\s\d.\u2014-]{1,12}$/.test(l.text))) l._drop = true;
+    }
+    for(let i=lines.length-1;i>=0;i--) if(lines[i]._drop) lines.splice(i,1);
+  });
+}
+
+/* ---- lines -> flowing paragraphs ---- */
+function joinLines(lines){
+  if(!lines.length) return "";
+  const rights = lines.map(l=>l.right).sort((a,b)=>a-b);
+  const fullRight = rights[Math.floor(rights.length*0.75)] || 0;
+  let out = "", buf = "";
+  for(let i=0;i<lines.length;i++){
+    const l = lines[i];
+    buf = buf ? buf + " " + l.text : l.text;
+    const short = l.right < fullRight - (l.width*0.10);
+    const ends = /[.!?:;»”"')\]]$/.test(l.text);
+    const nextIsHead = lines[i+1] && lines[i+1].size > l.size*1.12;
+    if(short || (ends && short) || nextIsHead || i === lines.length-1){
+      out += buf.replace(/(\p{L})-\s(\p{L})/gu,"$1$2") + "\n\n"; buf = "";
+    }
+  }
+  if(buf) out += buf + "\n\n";
+  return out.trim();
+}
+
+/* ---- outline from PDF bookmarks ---- */
+async function readOutline(pdf){
+  const raw = await pdf.getOutline();
+  if(!raw || !raw.length) return [];
+  const out = [];
+  async function pageOf(dest){
+    try{
+      let d = dest;
+      if(typeof d === "string") d = await pdf.getDestination(d);
+      if(!Array.isArray(d)) return null;
+      const ref = d[0];
+      if(ref && typeof ref === "object") return (await pdf.getPageIndex(ref)) + 1;
+      if(typeof ref === "number") return ref + 1;
+    }catch(e){}
+    return null;
+  }
+  async function walk(items, level){
+    for(const it of items){
+      const p = await pageOf(it.dest);
+      if(p) out.push({ title:(it.title||"Untitled").trim(), level, page:p });
+      if(it.items && it.items.length && level < 4) await walk(it.items, level+1);
+    }
+  }
+  await walk(raw, 1);
+  out.sort((a,b)=> a.page-b.page || a.level-b.level);
+  return out;
+}
+
+/* ---- heading detection when there are no bookmarks ---- */
+/* ---- heading detection when there are no bookmarks ----
+   Kept language-agnostic: type size and numbering carry most of the weight,
+   with a word list as a bonus signal rather than a requirement. ---- */
+const HEAD_WORDS = new RegExp(
+  "^(" + [
+    // English
+    "chapter","part","section","subsection","appendix","book","volume","unit","lesson","module","annex",
+    "preface","introduction","conclusion","epilogue","prologue","afterword","foreword",
+    "bibliography","glossary","index","notes","references","contents",
+    // Persian / Arabic
+    "فصل","بخش","قسمت","گفتار","درس","مقدمه","پیشگفتار","پیوست","ضمیمه","نتیجه","منابع","فهرست","کتاب",
+    "الفصل","الباب","القسم","المقدمة","الملحق","المراجع","الفهرس",
+    // Spanish / Portuguese
+    "capítulo","capitulo","parte","sección","seccion","apéndice","apendice","introducción","introduccion","prólogo",
+    // French
+    "chapitre","partie","annexe","préface","avant-propos","conclusion",
+    // German
+    "kapitel","teil","abschnitt","anhang","einleitung","vorwort",
+    // Italian
+    "capitolo","sezione","appendice","introduzione",
+    // Russian / Ukrainian
+    "глава","часть","раздел","приложение","введение","предисловие",
+    // Turkish
+    "bölüm","kısım","ek","önsöz",
+    // Dutch / Nordic
+    "hoofdstuk","deel","kapittel","kapitel","luku","osa"
+  ].join("|") + ")(?=$|[\\s:：.،,؛;\\-–—\\u200c]|\\d)", "iu"
+);
+
+const HEAD_RE = [
+  HEAD_WORDS,
+  /^\d+(\.\d+){0,3}[.):：、]?\s+\S/,                                   // 3.  or 3.2.1
+  /^[\u06F0-\u06F9\u0660-\u0669]+([.\u066B][\u06F0-\u06F9\u0660-\u0669]+)*[.)：:]?\s*\S/, // Persian / Arabic digits
+  /^[IVXLCDM]{1,7}[.)]\s+\S/,                                        // Roman numerals
+  /^第[〇零一二三四五六七八九十百千0-9]+[章節节部編编篇講讲課课回]/,          // Chinese / Japanese
+  /^제\s?[0-9]+\s?[장절부]/,                                          // Korean
+  /^[０-９]{1,3}[、．.]\s*\S/                                          // full-width digits
+];
+
+function looksLikeHeading(t){
+  if(t.length > 110 || t.length < 2) return false;
+  if(/[.!?。！？]$/.test(t) && t.length > 60) return false;
+  return HEAD_RE.some(r => r.test(t));
+}
+function detectHeadingsFromLines(pages){
+  const sizes = [];
+  pages.forEach(p => (p.lines||[]).forEach(l => sizes.push(Math.round(l.size*2)/2)));
+  if(!sizes.length) return [];
+  const freq = new Map(); sizes.forEach(s => freq.set(s,(freq.get(s)||0)+1));
+  const bodySize = [...freq.entries()].sort((a,b)=>b[1]-a[1])[0][0];
+  const bigs = [...new Set(sizes.filter(s => s >= bodySize*1.12))].sort((a,b)=>b-a).slice(0,3);
+
+  const found = [];
+  pages.forEach(p => (p.lines||[]).forEach(l => {
+    const bigIdx = bigs.findIndex(s => Math.abs(s - Math.round(l.size*2)/2) < 0.6);
+    const big = bigIdx >= 0;
+    const named = looksLikeHeading(l.text);
+    if(!big && !(named && l.bold)) return;
+    if(l.text.length > 120) return;
+    let level = big ? bigIdx + 1 : 2;
+    if(/^(chapter|part|book|volume|فصل|بخش|کتاب|الفصل|الباب|capítulo|capitulo|chapitre|kapitel|capitolo|глава|часть|bölüm|hoofdstuk|第)/iu.test(l.text)) level = Math.min(level,1);
+    found.push({ title:l.text, level, page:p.n });
+  }));
+  return dedupeHeadings(found);
+}
+function detectHeadingsFromText(pages){
+  const found = [];
+  pages.forEach(p => {
+    p.text.split("\n").forEach(raw => {
+      const t = raw.trim();
+      const md = t.match(/^(#{1,4})\s+(.*)$/);
+      if(md){ found.push({ title:md[2].trim(), level:md[1].length, page:p.n }); return; }
+      if(looksLikeHeading(t) && t.length < 90)
+        found.push({ title:t, level:/^(chapter|part|book|volume|فصل|بخش|کتاب|capítulo|chapitre|kapitel|глава|часть|bölüm|第)/iu.test(t)?1:2, page:p.n });
+    });
+  });
+  return dedupeHeadings(found);
+}
+function dedupeHeadings(list){
+  const seen = new Set(); const out = [];
+  for(const h of list){
+    const k = h.page + "|" + h.title.toLowerCase();
+    if(seen.has(k)) continue;
+    seen.add(k); out.push(h);
+  }
+  return out.sort((a,b)=> a.page-b.page || a.level-b.level);
+}
+
+/* =========================================================
+   after load
+========================================================= */
+function afterLoad(){
+  S.skipToc = true;
+  S.offset = 0; S.pageMode = "pdf";
+
+  if(S.ext === "pdf"){
+    const d = detectOffset();
+    if(d.offset !== 0 && d.confidence >= 0.25){
+      S.offset = d.offset; S.pageMode = "printed";
+      $("#offnote").classList.remove("hide");
+      $("#off-val").value = d.offset;
+      $("#off-say").textContent =
+        ` Printed page 1 sits at PDF page ${d.offset+1}, a difference of ${d.offset}` +
+        ` (read off the running heads on ${Math.round(d.confidence*100)}% of pages).`;
+      $("#pm-printed").onclick = () => setPageMode("printed");
+      $("#pm-pdf").onclick     = () => setPageMode("pdf");
+      $("#off-val").onchange = e => {
+        S.offset = Math.round(+e.target.value || 0);
+        refreshPages();
+      };
+    }
+  }
+
+  const nToc = markContentsPages();
+  rebuildPrefix();
+
+  if(nToc){
+    $("#tocnote").classList.remove("hide");
+    $("#toc-n").textContent = nToc + (nToc===1 ? " page" : " pages");
+    $("#toc-where").textContent = runsOfToc();
+    $("#o-skiptoc").onchange = e => {
+      S.skipToc = e.target.checked;
+      rebuildPrefix();
+      renderLevels(); renderManual();
+      if(S.parts.length && S.partsMode === "outline") buildFromOutline(); else renderParts();
+      drawBand();
+    };
+  }
+
+  $("#drop").classList.add("hide");
+  $("#docinfo").classList.remove("hide");
+  $("#cutsec").classList.remove("hide");
+
+  const words = S.pages.reduce((a,p)=> a + (p.text.match(/\S+/g)||[]).length, 0);
+  const toks  = S.pages.reduce((a,p)=> a + p.tokens, 0);
+  $("#s-name").textContent = S.name.length>26 ? S.name.slice(0,24)+"…" : S.name;
+  $("#s-name").title = S.name;
+  $("#s-pages").textContent = fmt(S.pages.length);
+  $("#s-words").textContent = fmt(words);
+  $("#s-tokens").textContent = "≈"+fmt(toks);
+  $("#s-outline").textContent = S.outline.length ? fmt(S.outline.length)+" ("+S.outlineSource+")" : "none";
+
+  if(S.ext==="pdf" && !S.hasText){
+    $("#scanwarn").classList.remove("hide");
+    selectTab("manual");
+    $("#x-format").value = "pdf";
+  }
+  $("#x-format").querySelector('option[value=pdf]').disabled = (S.ext !== "pdf");
+
+  renderTree();
+  renderOutlineWarning();
+  renderLevels();
+  renderManual();
+  autoBuild();
+  drawBand();
+}
+
+/* ---- tabs ---- */
+$("#tab-outline").onclick = () => selectTab("outline");
+$("#tab-manual").onclick  = () => selectTab("manual");
+function selectTab(which){
+  const o = which === "outline";
+  $("#tab-outline").setAttribute("aria-selected", o);
+  $("#tab-manual").setAttribute("aria-selected", !o);
+  $("#pane-outline").classList.toggle("hide", !o);
+  $("#pane-manual").classList.toggle("hide", o);
+}
+
+/* ---- what units does this book actually have? ---- */
+const GENERIC = ["Top-level entries","Sections","Subsections","Sub-subsections","Deeper entries"];
+
+function levelLabel(level){
+  const titles = S.outline.filter(h => h.level === level).map(h => h.title.trim());
+  if(!titles.length) return GENERIC[Math.min(level-1,4)];
+  const words = {};
+  titles.forEach(t => {
+    const m = t.match(/^([\p{L}]{3,12})\b/u);
+    if(m){ const w = m[1].toLowerCase(); words[w] = (words[w]||0)+1; }
+  });
+  const skip = new Set(["the","and","for","introduction","overview"]);
+  const best = Object.entries(words).filter(([w]) => !skip.has(w)).sort((a,b) => b[1]-a[1])[0];
+  if(best && best[1] >= Math.max(2, titles.length*0.35)){
+    const w = best[0];
+    return w.charAt(0).toUpperCase() + w.slice(1) + (/s$/.test(w) ? "" : "s");
+  }
+  return GENERIC[Math.min(level-1,4)];
+}
+
+function levelStats(L, hardMax){
+  const heads = S.outline.filter(h => h.level <= L);
+  const spans = [];
+  heads.forEach((h,i) => {
+    const a = h.page, b = (i+1 < heads.length ? heads[i+1].page-1 : S.pages.length);
+    if(b >= a) spans.push([a,b]);
+  });
+  if(!spans.length) return { count:0, median:0, over:0 };
+  const toks = spans.map(([a,b]) => tokensOfPages(a,b)).sort((x,y) => x-y);
+  return {
+    count: spans.length,
+    median: toks[Math.floor(toks.length/2)],
+    over: toks.filter(t => t > hardMax).length
+  };
+}
+
+function renderLevels(){
+  const box = $("#levels"); box.innerHTML = "";
+  const levels = [...new Set(S.outline.map(h => h.level))].sort((a,b) => a-b);
+  if(levels.length < 1){ $("#levelbox").classList.add("hide"); return; }
+  $("#levelbox").classList.remove("hide");
+
+  const target = +$("#o-target").value, hardMax = +$("#o-max").value;
+  const rows = levels.map(L => {
+    const st = levelStats(L, hardMax);
+    const eg = (S.outline.find(h => h.level === L)||{}).title || "";
+    return { L, label: levelLabel(L), eg, ...st, score: st.over*4 + Math.abs(st.median-target)/target };
+  }).filter(r => r.count);
+  if(!rows.length){ $("#levelbox").classList.add("hide"); return; }
+
+  const best = rows.reduce((a,b) => b.score < a.score ? b : a);
+  let chosen = +$("#o-level").value;
+  if(!rows.some(r => r.L === chosen)){ chosen = best.L; $("#o-level").value = chosen; }
+
+  rows.forEach(r => {
+    const b = el("button","lv-row");
+    b.setAttribute("aria-pressed", r.L === chosen);
+    b.dataset.l = r.L;
+    b.innerHTML = `
+      <span class="dot"></span>
+      <span>
+        <span class="lv-name"></span>
+        <span class="lv-eg"></span>
+      </span>
+      <span class="lv-stat">
+        ≈${fmt(r.median)} tokens each<br>
+        ${r.over ? `<span class="flag">${r.over} need further cutting</span>` : `<span class="good">all within the maximum</span>`}
+      </span>`;
+    const nm = b.querySelector(".lv-name");
+    nm.textContent = r.label;
+    const cnt = el("b"); cnt.textContent = fmt(r.count) + " pieces"; nm.appendChild(cnt);
+    if(r === best){ const p = el("span","lv-pick"); p.textContent = "best fit"; nm.appendChild(p); }
+    b.querySelector(".lv-eg").textContent = r.eg ? "e.g. " + r.eg : "";
+    b.onclick = () => {
+      $("#o-level").value = r.L;
+      renderLevels();
+      if(S.parts.length && S.partsMode === "outline") buildFromOutline();
+    };
+    box.appendChild(b);
+  });
+}
+
+/* ---- pages that are a table of contents or an index ----
+   Signature: most lines end in a page number, often after dot leaders. ---- */
+function looksLikeContents(page){
+  let lines;
+  if(page.lines && page.lines.length) lines = page.lines.map(l => l.text);
+  else lines = (page.text||"").split("\n");
+  lines = lines.map(s => s.trim()).filter(s => s.length > 3);
+  if(lines.length < 8) return false;
+
+  const lens = lines.map(s => s.length).sort((a,b) => a-b);
+  const medLen = lens[Math.floor(lens.length/2)];
+
+  let leaders = 0, numbered = 0;
+  const nums = [];
+  lines.forEach(t => {
+    if(/[.·•‥…]{3,}\s*\d{1,4}$/.test(t)) leaders++;
+    const m = t.match(/\D\s+(\d{1,4})$/);
+    if(m && t.length <= medLen*1.2){ numbered++; nums.push(+m[1]); }
+  });
+
+  // dot leaders are unambiguous
+  if(leaders >= lines.length*0.4) return true;
+
+  // otherwise the lines must be short and mostly end in a number
+  if(medLen > 78) return false;
+  if(numbered < lines.length*0.6 || nums.length < 6) return false;
+
+  // a table of contents climbs through the book
+  let inc = 0;
+  for(let i=1;i<nums.length;i++) if(nums[i] > nums[i-1]) inc++;
+  if(inc >= (nums.length-1)*0.6) return true;
+
+  // an index doesn't climb — it runs alphabetically instead
+  const firsts = lines.map(t => t.replace(/^[^\p{L}]+/u,"").toLowerCase().slice(0,14)).filter(Boolean);
+  if(firsts.length < 8) return false;
+  let alpha = 0;
+  for(let i=1;i<firsts.length;i++) if(firsts[i] > firsts[i-1]) alpha++;
+  return alpha >= (firsts.length-1)*0.75;
+}
+
+function markContentsPages(){
+  S.pages.forEach(p => { p.isToc = looksLikeContents(p); });
+  // a lone flagged page in the middle of a chapter is usually a false positive;
+  // real contents and indexes come in runs
+  S.pages.forEach((p,i) => {
+    if(!p.isToc) return;
+    const prev = S.pages[i-1], next = S.pages[i+1];
+    if(!(prev && prev.isToc) && !(next && next.isToc)) p.isToc = false;
+  });
+  return S.pages.filter(p => p.isToc).length;
+}
+
+function rebuildPrefix(){
+  S.tokPrefix = [0];
+  S.pages.forEach((p,i) => S.tokPrefix[i+1] = S.tokPrefix[i] + (skipped(p) ? 0 : p.tokens));
+}
+function skipped(p){ return S.skipToc && p.isToc; }
+
+function runsOfToc(){
+  const runs = []; let start = null;
+  S.pages.forEach((p,i) => {
+    if(p.isToc && start === null) start = i+1;
+    if((!p.isToc || i === S.pages.length-1) && start !== null){
+      const end = p.isToc ? i+1 : i;
+      runs.push(start === end ? `p. ${showPage(start)}` : `pp. ${showPage(start)}–${showPage(end)}`);
+      start = null;
+    }
+  });
+  return runs.slice(0,6).join(", ") + (runs.length > 6 ? ` and ${runs.length-6} more` : "");
+}
+
+/* ---- printed page numbers vs PDF page numbers ----
+   The number in a running header or footer is the page number the reader sees.
+   Compare it with the physical position to learn the offset. ---- */
+function detectOffset(){
+  const votes = new Map();
+  S.pages.forEach((p,i) => {
+    (p.headFoot||[]).forEach(t => {
+      const s = t.trim();
+      let m = s.match(/^(\d{1,4})$/)          // a bare page number
+           || s.match(/^(\d{1,4})\s+\D/)      // number then running title
+           || s.match(/\D\s+(\d{1,4})$/);     // running title then number
+      if(!m) return;
+      const n = +m[1];
+      if(n < 1 || n > 30000) return;
+      const off = (i+1) - n;
+      if(off < -20 || off > 3000) return;
+      votes.set(off, (votes.get(off)||0) + 1);
+    });
+  });
+  if(!votes.size) return { offset:0, confidence:0 };
+  const [off, count] = [...votes].sort((a,b) => b[1]-a[1])[0];
+  return { offset: off, confidence: count / S.pages.length };
+}
+
+function showPageRaw(n){
+  const v = n - S.offset;
+  return v >= 1 ? String(v) : "n/a";
+}
+function showPage(n){
+  if(S.pageMode !== "printed" || !S.offset) return String(n);
+  const v = n - S.offset;
+  return v >= 1 ? String(v) : "pdf " + n;
+}
+function readPage(v){
+  return (S.pageMode === "printed" && S.offset) ? v + S.offset : v;
+}
+function inputPage(n){
+  if(S.pageMode !== "printed" || !S.offset) return n;
+  return n - S.offset;
+}
+
+function setPageMode(m){
+  S.pageMode = m;
+  $("#pm-printed").setAttribute("aria-pressed", m === "printed");
+  $("#pm-pdf").setAttribute("aria-pressed", m === "pdf");
+  refreshPages();
+}
+function refreshPages(){
+  $("#toc-where").textContent = runsOfToc();
+  renderTree(); renderManual(); renderParts(); drawBand();
+}
+
+/* no headings anywhere — still give the reader something usable */
+function buildBySize(){
+  const target = +$("#o-target").value, overlap = +$("#o-overlap").value;
+  const pieces = splitBlocks(blocksOfPages(1, S.pages.length), target, overlap);
+  if(!pieces.length){ toast("Nothing to cut"); return; }
+  S.parts = pieces.map((pc,i) => ({
+    title: `Part ${i+1} of ${pieces.length}`, path:"",
+    startPage: pc.startPage, endPage: pc.endPage,
+    text: pc.text, tokens: estTokens(pc.text),
+    basis: "cut for size, at a paragraph break"
+  }));
+  S.partsMode = "outline";
+  renderParts(); drawBand();
+}
+
+function autoBuild(){
+  if(!S.hasText) return;
+  if(S.outline.length) buildFromOutline(true);
+  else buildBySize();
+}
+
+/* how much should the reader trust the structure we found? */
+function renderOutlineWarning(){
+  const box = $("#nooutline");
+  box.className = "notice hide";
+  box.style.marginBottom = "24px";
+  if(S.outlineSource === "bookmarks") return;
+
+  if(!S.outline.length){
+    box.className = "notice";
+    box.innerHTML =
+      "<b>This book has no contents list.</b> Nothing in the file says where the chapters begin, and no headings " +
+      "could be worked out from the text either. The parts below were cut purely by length, so a chapter may well " +
+      "be split down the middle and no part carries a meaningful name." +
+      "<br><br>If the book matters to you, cut it by hand instead: open the book's own contents page, and enter each " +
+      "chapter's title and page range yourself. It takes a few minutes and the result is far more useful.";
+  } else {
+    box.className = "notice info";
+    box.innerHTML =
+      "<b>These headings were guessed, not read.</b> This book carries no built-in contents list, so headings were " +
+      "inferred from type size and numbering. On a cleanly typeset book that works well; on a busy one it invents " +
+      "headings that aren't there and misses real ones." +
+      "<br><br>Look through the list below before you download. If it doesn't match the book, entering the ranges by hand is quicker than fighting it.";
+  }
+  const btn = el("button","ghost");
+  btn.textContent = "Cut it by hand instead";
+  btn.style.marginTop = "12px";
+  btn.onclick = () => {
+    selectTab("manual");
+    document.querySelector("#cutsec").scrollIntoView({behavior:"smooth", block:"start"});
+  };
+  box.appendChild(btn);
+}
+
+/* ---- structure list ---- */
+function renderTree(){
+  const box = $("#tree"); box.innerHTML = "";
+  if(!S.outline.length){
+    $("#treebox").classList.add("hide"); $("#notree").classList.remove("hide"); return;
+  }
+  $("#treebox").classList.remove("hide"); $("#notree").classList.add("hide");
+  S.outline.slice(0,400).forEach(h => {
+    const n = el("div","tnode h"+Math.min(h.level,3));
+    n.innerHTML = `<span class="lv">L${h.level}</span>
+      <span class="ti" style="padding-left:${(h.level-1)*16}px"></span>
+      <span class="tp">p.${showPage(h.page)}</span>`;
+    n.querySelector(".ti").textContent = h.title;
+    box.appendChild(n);
+  });
+}
+
+/* =========================================================
+   outline-based parts
+========================================================= */
+$("#o-run").onclick  = () => buildFromOutline();
+$("#o-run2").onclick = () => buildFromOutline();
+
+function buildFromOutline(quiet){
+  const maxLevel = +$("#o-level").value;
+  const opt = {
+    target: +$("#o-target").value,
+    hardMax: +$("#o-max").value,
+    overlap: +$("#o-overlap").value,
+    src: S.outlineSource === "bookmarks" ? "PDF bookmark" : "detected heading"
+  };
+  const doMerge = $("#o-merge").checked;
+
+  const heads = S.outline.filter(h => h.level <= maxLevel);
+  if(!heads.length){ toast("No headings at that level"); return; }
+
+  // ancestor path for labelling
+  const path = [];
+  const withPath = heads.map(h => {
+    while(path.length && path[path.length-1].level >= h.level) path.pop();
+    const p = path.map(x=>x.title).join(" › ");
+    path.push(h);
+    return { ...h, path: p };
+  });
+
+  // page spans
+  let secs = withPath.map((h,i) => makeSec(
+    h.title, h.path, h.level, h.page,
+    (i+1 < withPath.length ? withPath[i+1].page - 1 : S.pages.length),
+    opt.src
+  )).filter(s => s.endPage >= s.startPage);
+
+  // front matter before the first heading
+  if(secs.length && secs[0].startPage > 1)
+    secs.unshift(makeSec("Front matter", "", 1, 1, secs[0].startPage-1, "start of the document"));
+
+  // merge the small ones forward
+  if(doMerge){
+    const merged = [];
+    for(const s of secs){
+      const prev = merged[merged.length-1];
+      if(prev && prev.tokens + s.tokens <= opt.target && s.tokens < opt.target*0.5 && prev.level >= s.level){
+        const joined = makeSec(prev.title + " + " + s.title, prev.path, prev.level,
+                               prev.startPage, s.endPage, opt.src + ", short sections joined");
+        merged[merged.length-1] = joined;
+      } else merged.push(s);
+    }
+    secs = merged;
+  }
+
+  // expand anything still too big
+  let out = [];
+  secs.forEach(s => { out = out.concat(expand(s, opt, 0)); });
+  out = out.filter(p => p.text && p.text.trim().length > 40);
+  if(!out.length){ toast("Nothing left to cut"); return; }
+
+  S.parts = out; S.partsMode = "outline";
+  renderParts(); drawBand();
+  if(quiet !== true) document.querySelector("#partsec").scrollIntoView({behavior:"smooth", block:"start"});
+}
+
+function textOfPages(a,b){
+  return S.pages.slice(a-1, b).filter(p => !skipped(p)).map(p => p.text).filter(Boolean).join("\n\n").trim();
+}
+/* cheap range estimate — avoids re-joining megabytes of text on every keystroke */
+function tokensOfPages(a,b){
+  if(!S.tokPrefix) return estTokens(textOfPages(a,b));
+  a = Math.max(1,a); b = Math.min(S.pages.length,b);
+  if(b < a) return 0;
+  return S.tokPrefix[b] - S.tokPrefix[a-1];
+}
+
+function makeSec(title, path, level, a, b, basis){
+  const text = textOfPages(a,b);
+  return { title, path, level, startPage:a, endPage:b, text, tokens:estTokens(text), basis };
+}
+
+/* paragraphs, each remembering the page it came from */
+function blocksOfPages(a,b){
+  const out = [];
+  for(let p=a;p<=b;p++){
+    const pg = S.pages[p-1];
+    if(!pg || !pg.text || skipped(pg)) continue;
+    pg.text.split(/\n{2,}/).forEach(t => { t = t.trim(); if(t) out.push({ text:t, page:p }); });
+  }
+  return out;
+}
+
+/* the first heading that falls inside a piece, for a more useful title */
+function headingIn(a,b,exclude){
+  const h = S.outline.find(x => x.page>=a && x.page<=b && x.title!==exclude);
+  return h ? h.title : "";
+}
+
+/* too big? first try the headings inside it; only then cut for size */
+function expand(s, opt, depth){
+  if(s.tokens <= opt.hardMax) return [s];
+
+  if(depth < 5){
+    const inner = S.outline.filter(h => h.page > s.startPage && h.page <= s.endPage && h.level > s.level);
+    if(inner.length){
+      const lv = Math.min(...inner.map(h => h.level));
+      const marks = inner.filter(h => h.level === lv).sort((a,b) => a.page - b.page);
+      const kids = [];
+      let start = s.startPage, title = s.title, curLv = s.level,
+          kidPath = s.path, basis = s.basis;
+      marks.forEach(h => {
+        if(h.page-1 >= start) kids.push(makeSec(title, kidPath, curLv, start, h.page-1, basis));
+        start = h.page; title = h.title; curLv = lv;
+        kidPath = (s.path ? s.path + " › " : "") + s.title;
+        basis = opt.src;
+      });
+      if(start <= s.endPage) kids.push(makeSec(title, kidPath, curLv, start, s.endPage, basis));
+      if(kids.length > 1){
+        let acc = [];
+        kids.forEach(k => acc = acc.concat(expand(k, opt, depth+1)));
+        return acc;
+      }
+    }
+  }
+
+  const pieces = splitBlocks(blocksOfPages(s.startPage, s.endPage), opt.target, opt.overlap);
+  if(pieces.length < 2) return [s];
+  return pieces.map((pc,i) => ({
+    ...s,
+    title: s.title + ` (${i+1}/${pieces.length})`,
+    inner: headingIn(pc.startPage, pc.endPage, s.title),
+    text: pc.text, tokens: estTokens(pc.text),
+    startPage: pc.startPage, endPage: pc.endPage,
+    basis: i === 0 ? s.basis + ", then cut for size"
+                   : "cut for size, at a paragraph break"
+  }));
+}
+
+/* size-split that keeps track of which pages each piece actually covers */
+function splitBlocks(blocks, target, overlapWords){
+  if(!blocks.length) return [];
+  const out = []; let cur = [], curTok = 0, carry = "";
+  const emit = () => {
+    if(!cur.length) return;
+    const body = cur.map(b => b.text).join("\n\n");
+    out.push({
+      text: (carry ? carry + "\n\n" : "") + body,
+      startPage: cur[0].page,
+      endPage: cur[cur.length-1].page
+    });
+    carry = "";
+    if(overlapWords > 0){
+      const tail = body.split(/\s+/).slice(-overlapWords).join(" ");
+      if(tail) carry = "…" + tail;
+    }
+    cur = []; curTok = 0;
+  };
+  for(const b of blocks){
+    const t = estTokens(b.text);
+    if(curTok + t > target && cur.length) emit();
+    cur.push(b); curTok += t;
+  }
+  emit();
+  return out;
+}
+
+/* =========================================================
+   manual ranges
+========================================================= */
+$("#m-add").onclick = () => {
+  const last = S.manual[S.manual.length-1];
+  const from = last ? Math.min(last.to+1, S.pages.length) : 1;
+  S.manual.push({ id:S.mid++, name:"Part "+(S.manual.length+1), from, to: Math.min(from+9, S.pages.length) });
+  renderManual(); drawBand();
+};
+$("#m-count").oninput = e => { $("#m-n").textContent = e.target.value; };
+$("#m-even").onclick = () => {
+  const n = Math.max(2, Math.min(200, +$("#m-count").value||10));
+  const per = Math.ceil(S.pages.length / n);
+  S.manual = [];
+  for(let i=0;i<n;i++){
+    const from = i*per+1; if(from > S.pages.length) break;
+    S.manual.push({ id:S.mid++, name:`Part ${i+1}`, from, to: Math.min((i+1)*per, S.pages.length) });
+  }
+  renderManual(); drawBand();
+};
+$("#m-gaps").onclick = () => {
+  const covered = new Array(S.pages.length+1).fill(false);
+  S.manual.forEach(r => { for(let p=r.from;p<=r.to;p++) if(p>=1&&p<=S.pages.length) covered[p]=true; });
+  let added = 0, p = 1;
+  while(p <= S.pages.length){
+    if(!covered[p]){
+      const start = p; while(p <= S.pages.length && !covered[p]) p++;
+      S.manual.push({ id:S.mid++, name:`Pages ${start}–${p-1}`, from:start, to:p-1 }); added++;
+    } else p++;
+  }
+  S.manual.sort((a,b)=>a.from-b.from);
+  renderManual(); drawBand();
+  toast(added ? `${added} range${added>1?"s":""} added` : "No uncovered pages");
+};
+$("#m-fromoutline").onclick = () => {
+  const maxLevel = +$("#o-level").value;
+  const heads = S.outline.filter(h => h.level <= maxLevel);
+  if(!heads.length){ toast("Nothing in the outline to copy"); return; }
+  S.manual = heads.map((h,i) => ({
+    id:S.mid++, name:h.title,
+    from:h.page, to:(i+1<heads.length ? heads[i+1].page-1 : S.pages.length)
+  })).filter(r => r.to >= r.from);
+  renderManual(); drawBand(); selectTab("manual");
+  toast(S.manual.length + " ranges copied — edit freely");
+};
+$("#m-clear").onclick = () => { S.manual = []; renderManual(); drawBand(); };
+
+function renderManual(){
+  const body = $("#mbody"); body.innerHTML = "";
+  $("#mempty").classList.toggle("hide", S.manual.length>0);
+  $("#mtable").classList.toggle("hide", S.manual.length===0);
+
+  S.manual.forEach((r,i) => {
+    const bad = !(r.from>=1 && r.to<=S.pages.length && r.from<=r.to);
+    const tr = el("tr", bad ? "bad" : "");
+    tr.innerHTML = `
+      <td class="mono" style="color:var(--gold)">${String(i+1).padStart(2,"0")}</td>
+      <td><input type="text" value="" dir="auto"></td>
+      <td class="num"><input type="number" value="${inputPage(r.from)}"></td>
+      <td class="num"><input type="number" value="${inputPage(r.to)}"></td>
+      <td class="mono" style="color:var(--ink-3)">${bad?"—":"≈"+fmt(tokensOfPages(r.from,r.to))}</td>
+      <td class="act"><button class="danger" title="Remove">×</button></td>`;
+    const [nameI, fromI, toI] = tr.querySelectorAll("input");
+    nameI.value = r.name;
+    nameI.oninput  = e => { r.name = e.target.value; };
+    nameI.onchange = () => renderManual();
+    fromI.onchange = e => { r.from = readPage(+e.target.value||1); renderManual(); drawBand(); };
+    toI.onchange   = e => { r.to   = readPage(+e.target.value||1); renderManual(); drawBand(); };
+    tr.querySelector("button").onclick = () => { S.manual = S.manual.filter(x=>x.id!==r.id); renderManual(); drawBand(); };
+    body.appendChild(tr);
+  });
+
+  // validation summary
+  const warn = $("#mwarn"); const msgs = [];
+  const bad = S.manual.filter(r => !(r.from>=1 && r.to<=S.pages.length && r.from<=r.to));
+  if(bad.length) msgs.push(`<b>${bad.length} range${bad.length>1?"s are":" is"} out of bounds.</b> Pages run from ${showPage(1)} to ${showPage(S.pages.length)}.`);
+  const big = S.manual.filter(r => r.from<=r.to && tokensOfPages(r.from,r.to) > +$("#o-max").value);
+  if(big.length) msgs.push(`${big.length} range${big.length>1?"s exceed":" exceeds"} the hard maximum of ${fmt(+$("#o-max").value)} tokens.`);
+  warn.innerHTML = msgs.join("<br>");
+  warn.classList.toggle("hide", !msgs.length);
+  warn.className = "notice" + (bad.length ? "" : " info") + (msgs.length ? "" : " hide");
+
+  if(S.manual.length){
+    S.parts = S.manual.filter(r => r.from<=r.to && r.from>=1 && r.to<=S.pages.length).map(r => {
+      const text = textOfPages(r.from, r.to);
+      return { title:r.name||"Untitled", path:"", startPage:r.from, endPage:r.to, text, tokens:estTokens(text),
+               basis:"page range you set by hand" };
+    });
+    S.partsMode = "manual";
+    renderParts();
+  } else if(S.partsMode === "manual"){
+    S.parts = []; renderParts();
+  }
+}
+
+/* =========================================================
+   coverage band
+========================================================= */
+function drawBand(){
+  const svg = $("#band"); const W = 1000, H = 74;
+  const N = Math.max(1, S.pages.length);
+  const px = p => (p-1)/N * W;
+  let g = `<rect x="0" y="26" width="${W}" height="22" fill="var(--rule)" opacity=".5"/>`;
+
+  // coverage
+  const depth = new Array(N+2).fill(0);
+  S.parts.forEach(pt => { for(let p=pt.startPage;p<=pt.endPage;p++) if(p>=1&&p<=N) depth[p]++; });
+  let run = 0;
+  for(let p=1;p<=N+1;p++){
+    if(depth[p] && !run) run = p;
+    if(run && (!depth[p] || p===N+1 || depth[p]!==depth[run])){
+      const x = px(run), w = Math.max(0.7, px(p)-px(run));
+      g += `<rect x="${x.toFixed(2)}" y="26" width="${w.toFixed(2)}" height="22" fill="${depth[run]>1?"var(--gold)":"var(--lapis)"}" opacity="${depth[run]>1?.85:.78}"/>`;
+      run = depth[p] ? p : 0;
+    }
+  }
+  // contents / index pages left out
+  if(S.skipToc){
+    let r = 0;
+    for(let p=1;p<=N+1;p++){
+      const on = S.pages[p-1] && S.pages[p-1].isToc;
+      if(on && !r) r = p;
+      if(r && (!on || p===N+1)){
+        const x = px(r), w = Math.max(0.7, px(p)-px(r));
+        g += `<rect x="${x.toFixed(2)}" y="20" width="${w.toFixed(2)}" height="5" fill="var(--ink-3)" opacity=".7"/>`;
+        r = 0;
+      }
+    }
+  }
+  // cut lines
+  S.parts.forEach(pt => {
+    const x = px(pt.startPage);
+    g += `<line x1="${x.toFixed(2)}" y1="20" x2="${x.toFixed(2)}" y2="54" stroke="var(--ink)" stroke-width="1"/>`;
+  });
+  // rubric ticks for headings
+  S.outline.forEach(h => {
+    if(h.level > 2) return;
+    const x = px(h.page);
+    g += `<line x1="${x.toFixed(2)}" y1="8" x2="${x.toFixed(2)}" y2="${h.level===1?20:15}" stroke="var(--rubric)" stroke-width="${h.level===1?1.4:.8}"/>`;
+  });
+  // scale
+  const step = N>400?100:N>150?50:N>40?10:5;
+  for(let p=step;p<N;p+=step){
+    const lbl = showPage(p);
+    if(/^pdf/.test(lbl)) continue;
+    g += `<line x1="${px(p).toFixed(2)}" y1="48" x2="${px(p).toFixed(2)}" y2="53" stroke="var(--ink-3)" stroke-width=".6"/>`;
+    g += `<text x="${px(p).toFixed(2)}" y="66" font-family="ui-monospace,monospace" font-size="9" fill="var(--ink-3)" text-anchor="middle">${lbl}</text>`;
+  }
+  svg.innerHTML = g;
+}
+
+/* =========================================================
+   parts list
+========================================================= */
+function renderParts(){
+  const box = $("#parts"); box.innerHTML = "";
+  const sec = $("#partsec");
+  if(!S.parts.length){ sec.classList.add("hide"); drawBand(); return; }
+  sec.classList.remove("hide");
+
+  const target = +$("#o-target").value, hardMax = +$("#o-max").value;
+  const total = S.parts.reduce((a,p)=>a+p.tokens,0);
+  const bySize = S.parts.filter(p => /cut for size/.test(p.basis||"")).length;
+  $("#parts-h").textContent = `${S.parts.length} parts`;
+  $("#parts-sub").innerHTML = `≈${fmt(total)} tokens in total · `+
+    `largest ≈${fmt(Math.max(...S.parts.map(p=>p.tokens)))}, smallest ≈${fmt(Math.min(...S.parts.map(p=>p.tokens)))}` +
+    (S.partsMode === "outline"
+      ? ` · <b>${S.parts.length - bySize}</b> cut at a heading, <b>${bySize}</b> cut for size`
+      : ` · all cut at page ranges you set`);
+
+  const CAP = 250;
+  const shown = S.parts.slice(0, CAP);
+  shown.forEach((p,i) => {
+    const over = p.tokens > hardMax, tiny = p.tokens < target*0.25;
+    const c = el("div","part" + (over?" over":tiny?" tiny":""));
+    c.innerHTML = `
+      <div class="no">${String(i+1).padStart(2,"0")}</div>
+      <div>
+        <p class="t"></p>
+        <p class="inner"></p>
+        <p class="p"><b>pp. ${showPage(p.startPage)}–${showPage(p.endPage)}</b>${(S.pageMode==="printed"&&S.offset)?` <span style="opacity:.7">(pdf ${p.startPage}–${p.endPage})</span>`:""} · ≈${fmt(p.tokens)} tokens · ${fmt(p.text.length)} chars${over?' · <span style="color:var(--rubric)">over the maximum</span>':tiny?' · <span style="color:var(--ink-3)">very small</span>':''}</p>
+        <p class="why"><span class="tag"></span></p>
+      </div>
+      <div class="acts">
+        <button class="quiet peek">Preview</button>
+        <button class="quiet copy">Copy</button>
+        <button class="quiet dl">Save</button>
+      </div>`;
+    c.querySelector(".t").textContent = p.title;
+    const innerEl = c.querySelector(".inner");
+    if(p.inner) innerEl.textContent = "opens at: " + p.inner; else innerEl.remove();
+    const tag = c.querySelector(".tag");
+    tag.textContent = p.basis || "unknown";
+    if(/cut for size/.test(p.basis||"")) tag.classList.add("size");
+    if(/by hand/.test(p.basis||"")) tag.classList.add("hand");
+    if(p.path) c.querySelector(".t").title = p.path + " › " + p.title;
+
+    c.querySelector(".peek").onclick = () => {
+      const ex = c.querySelector(".part-body");
+      if(ex){ ex.remove(); return; }
+      const b = el("div","part-body");
+      b.textContent = p.text.slice(0,4000) + (p.text.length>4000 ? "\n\n… "+fmt(p.text.length-4000)+" more characters" : "");
+      b.dir = "auto"; c.appendChild(b);
+    };
+    c.querySelector(".copy").onclick = async () => {
+      try{ await navigator.clipboard.writeText(fileBody(p,i)); toast("Part "+(i+1)+" copied"); }
+      catch(e){ toast("Copy blocked by the browser"); }
+    };
+    c.querySelector(".dl").onclick = async () => {
+      const f = $("#x-format").value;
+      if(f === "pdf"){ const bytes = await slicePdf(p); saveBlob(new Blob([bytes],{type:"application/pdf"}), slug(p.title,i+1)+".pdf"); }
+      else saveBlob(new Blob([fileBody(p,i)],{type:"text/plain;charset=utf-8"}), slug(p.title,i+1)+"."+f);
+    };
+    box.appendChild(c);
+  });
+  if(S.parts.length > CAP){
+    const more = el("div","empty");
+    more.style.marginTop = "4px";
+    more.innerHTML = `Showing the first ${fmt(CAP)} of ${fmt(S.parts.length)} parts, to keep this page quick.<br>` +
+      `<span style="color:var(--ink-3);font-size:13px">All ${fmt(S.parts.length)} are included when you download.</span>`;
+    box.appendChild(more);
+  }
+  drawBand();
+}
+
+/* =========================================================
+   export
+========================================================= */
+function label(p,i){
+  const L = [
+    "---",
+    `source: ${S.name}`,
+    `part: ${i+1} of ${S.parts.length}`,
+    `title: ${p.title.replace(/\n/g," ")}`,
+  ];
+  if(p.path) L.push(`section_path: ${p.path}`);
+  if(p.inner) L.push(`opens_at: ${p.inner.replace(/\n/g," ")}`);
+  L.push(
+    ...(S.offset
+      ? [`pages_printed: ${showPageRaw(p.startPage)}-${showPageRaw(p.endPage)}`,
+         `pages_pdf: ${p.startPage}-${p.endPage}`]
+      : [`pages: ${p.startPage}-${p.endPage}`]),
+    `cut_basis: ${p.basis || "unknown"}`,
+    `tokens_est: ${p.tokens}`,
+    `characters: ${p.text.length}`,
+    `previous: ${i>0 ? slug(S.parts[i-1].title,i) : "none"}`,
+    `next: ${i+1<S.parts.length ? slug(S.parts[i+1].title,i+2) : "none"}`,
+    `cut_by: ${S.partsMode}`,
+    `generated: ${new Date().toISOString().slice(0,10)}`,
+    "---",""
+  );
+  return L.join("\n");
+}
+function fileBody(p,i){
+  const head = $("#x-front").checked ? label(p,i) : "";
+  const title = $("#x-format").value === "md" ? `# ${p.title}\n\n` : "";
+  return head + title + p.text + "\n";
+}
+function indexFile(){
+  const lines = [
+    `# ${S.name} — split into ${S.parts.length} parts`, "",
+    `Cut ${S.partsMode==="outline" ? "along the document outline" : "at manually chosen page ranges"} on ${new Date().toISOString().slice(0,10)}.`,
+    `Source pages: ${S.pages.length}. Total ≈${fmt(S.parts.reduce((a,p)=>a+p.tokens,0))} tokens.`, "",
+    "| # | Part | Pages | ≈Tokens | Cut at |", "|---|---|---|---|---|"
+  ];
+  S.parts.forEach((p,i) => lines.push(`| ${i+1} | ${p.title.replace(/\|/g,"/")} | ${showPage(p.startPage)}–${showPage(p.endPage)} | ${fmt(p.tokens)} | ${p.basis||"unknown"} |`));
+  lines.push("", "---", "", "Suggested preamble when you hand one part to a model:", "",
+    "> This is part {n} of {total} of \"" + S.name + "\", covering pages {a}–{b}. Earlier and later parts exist and are not included. Answer only from what is here, and say so if something referenced falls outside this part.");
+  return lines.join("\n");
+}
+function manifestFile(){
+  return JSON.stringify({
+    source:S.name, source_pages:S.pages.length, cut_by:S.partsMode,
+    printed_page_offset:S.offset || 0,
+    contents_pages_skipped:S.skipToc ? S.pages.filter(p=>p.isToc).length : 0,
+    generated:new Date().toISOString(),
+    parts:S.parts.map((p,i)=>({
+      index:i+1, file:slug(p.title,i+1)+"."+$("#x-format").value, title:p.title,
+      section_path:p.section_path||p.path||null,
+      start_page:p.startPage, end_page:p.endPage,
+      start_page_printed:S.offset?showPageRaw(p.startPage):null,
+      end_page_printed:S.offset?showPageRaw(p.endPage):null,
+      cut_basis:p.basis||null, opens_at:p.inner||null,
+      tokens_est:p.tokens, characters:p.text.length
+    }))
+  }, null, 2);
+}
+
+async function slicePdf(p){
+  const src = await PDFLib.PDFDocument.load(S.pdfBytes);
+  const out = await PDFLib.PDFDocument.create();
+  const idx = [];
+  for(let i=p.startPage;i<=p.endPage;i++) if(i>=1 && i<=src.getPageCount()) idx.push(i-1);
+  const copied = await out.copyPages(src, idx);
+  copied.forEach(pg => out.addPage(pg));
+  out.setTitle(p.title); out.setSubject(`${S.name} — pages ${p.startPage}-${p.endPage}`);
+  return await out.save();
+}
+
+function saveBlob(blob, name){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+}
+
+$("#x-zip").onclick = async () => {
+  if(!S.parts.length) return;
+  const btn = $("#x-zip"); btn.disabled = true; const old = btn.textContent;
+  try{
+    const zip = new JSZip();
+    const f = $("#x-format").value;
+    for(let i=0;i<S.parts.length;i++){
+      const p = S.parts[i];
+      btn.textContent = `Packing ${i+1}/${S.parts.length}…`;
+      if(f === "pdf") zip.file(slug(p.title,i+1)+".pdf", await slicePdf(p));
+      else zip.file(slug(p.title,i+1)+"."+f, fileBody(p,i));
+      if(i%5===0) await new Promise(r=>setTimeout(r));
+    }
+    if($("#x-index").checked){
+      zip.file("_index.md", indexFile());
+      zip.file("manifest.json", manifestFile());
+    }
+    btn.textContent = "Compressing…";
+    const blob = await zip.generateAsync({type:"blob"});
+    saveBlob(blob, S.name.replace(/\.[^.]+$/,"") + "-parts.zip");
+    toast("ZIP saved");
+  }catch(e){ console.error(e); toast("Export failed — see the console"); }
+  btn.textContent = old; btn.disabled = false;
+};
+
+/* =========================================================
+   problem reports
+   Fill these two in before you publish, or only "Copy" shows.
+========================================================= */
+const FEEDBACK = {
+  email: "",   // e.g. "you@example.com"
+  issues: ""   // e.g. "https://github.com/you/signature/issues/new"
+};
+const VERSION = "1.1";
+
+function diagnostics(){
+  const L = [];
+  const add = (k,v) => L.push(k.padEnd(22) + v);
+
+  add("signature version", VERSION);
+  add("page numbering", S.offset ? `printed = pdf − ${S.offset}` : "no offset detected");
+
+  if(!S.pages.length){
+    add("file", "none loaded");
+  } else {
+    add("file type", S.ext || "?");
+    add("pages", S.pages.length);
+    add("has text layer", S.hasText ? "yes" : "NO — looks scanned");
+    add("total tokens (est)", S.tokPrefix ? S.tokPrefix[S.pages.length] : "?");
+    add("outline source", S.outlineSource || "none found");
+    add("outline entries", S.outline.length);
+    if(S.outline.length){
+      const byLv = {};
+      S.outline.forEach(h => byLv[h.level] = (byLv[h.level]||0)+1);
+      add("outline by level", Object.entries(byLv).map(([k,v]) => `L${k}:${v}`).join("  "));
+      add("first heading", (S.outline[0].title||"").slice(0,60) + " @p" + S.outline[0].page);
+    }
+    const toc = S.pages.filter(p => p.isToc).length;
+    add("contents pages found", toc + (S.skipToc ? " (skipped)" : " (kept)"));
+  }
+
+  if(S.parts.length){
+    const t = S.parts.map(p => p.tokens).sort((a,b) => a-b);
+    const bySize = S.parts.filter(p => /cut for size/.test(p.basis||"")).length;
+    add("parts", S.parts.length);
+    add("cut mode", S.partsMode);
+    add("cut at a heading", S.parts.length - bySize);
+    add("cut for size", bySize);
+    add("tokens min/mid/max", `${t[0]} / ${t[Math.floor(t.length/2)]} / ${t[t.length-1]}`);
+  } else {
+    add("parts", "none built");
+  }
+
+  add("settings", `level=${$("#o-level").value} target=${$("#o-target").value} max=${$("#o-max").value} overlap=${$("#o-overlap").value} merge=${$("#o-merge").checked}`);
+  add("export format", $("#x-format").value);
+  add("screen", `${window.innerWidth}x${window.innerHeight}`);
+  add("browser", navigator.userAgent.slice(0,120));
+
+  return L.join("\n");
+}
+
+function reportText(){
+  return [
+    "Problem: " + $("#fb-kind").value,
+    "",
+    ($("#fb-text").value.trim() || "(no description given)"),
+    "",
+    "--- what the tool was doing ---",
+    $("#fb-diag").value.trim()
+  ].join("\n");
+}
+
+function refreshDiag(){ $("#fb-diag").value = diagnostics(); }
+$("#fb-details").addEventListener("toggle", () => { if($("#fb-details").open) refreshDiag(); });
+$("#fb-kind").onchange = refreshDiag;
+refreshDiag();
+
+$("#fb-copy").onclick = async () => {
+  refreshDiag_ifEmpty();
+  try{
+    await navigator.clipboard.writeText(reportText());
+    $("#fb-note").textContent = FEEDBACK.email || FEEDBACK.issues
+      ? "Copied. Paste it wherever suits you."
+      : "Copied — paste it into an email or a message.";
+  }catch(e){
+    $("#fb-note").textContent = "The browser blocked copying. Select the text below and copy it by hand.";
+    $("#fb-details").open = true;
+  }
+};
+function refreshDiag_ifEmpty(){ if(!$("#fb-diag").value.trim()) refreshDiag(); }
+
+if(FEEDBACK.email){
+  const b = $("#fb-mail"); b.classList.remove("hide");
+  b.onclick = () => {
+    refreshDiag_ifEmpty();
+    const url = "mailto:" + FEEDBACK.email +
+      "?subject=" + encodeURIComponent("Signature: " + $("#fb-kind").value) +
+      "&body=" + encodeURIComponent(reportText());
+    location.href = url;
+  };
+}
+if(FEEDBACK.issues){
+  const b = $("#fb-issue"); b.classList.remove("hide");
+  b.onclick = () => {
+    refreshDiag_ifEmpty();
+    const url = FEEDBACK.issues +
+      "?title=" + encodeURIComponent($("#fb-kind").value) +
+      "&body=" + encodeURIComponent(reportText());
+    window.open(url, "_blank", "noopener");
+  };
+}
+if(!FEEDBACK.email && !FEEDBACK.issues){
+  $("#fb-note").textContent = "No address is set on this copy — copy the report and send it however you like.";
+}
+
+$("#x-format").onchange = () => renderParts();
+$("#o-max").onchange = () => { renderLevels(); renderParts(); if(S.manual.length) renderManual(); };
+$("#o-target").onchange = () => { renderLevels(); renderParts(); };
+</script>
