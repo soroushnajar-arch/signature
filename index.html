@@ -1,7 +1,22 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Signature — it actually works</title>
-<meta name="description" content="Cut a long book into labelled parts that fit in a chat window. One HTML file, runs in your browser, nothing uploaded.">
+
+<!-- ▼ replace this one line with your live address, then re-upload ▼ -->
+<link rel="canonical" href="https://chunkbook.pages.dev/">
+
+<title>Split a large PDF book into parts for ChatGPT or Claude — Chunkbook</title>
+<meta name="description" content="Free PDF splitter for LLMs. Cuts a long book into labelled chunks sized to fit a chat's context window — at real chapter boundaries, not every 5,000 characters. Runs in your browser, nothing uploaded.">
+<meta name="keywords" content="split PDF for ChatGPT, chunk PDF for LLM, book too large for Claude, PDF splitter, context window, split ebook by chapter, PDF chunking tool">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="Split a large PDF book into parts for ChatGPT or Claude">
+<meta property="og:description" content="Cut a 900-page book at its real chapter breaks, into parts that fit a chat window — each labelled with the pages it came from. Free, browser-only, nothing uploaded.">
+<meta property="og:site_name" content="Chunkbook">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Split a large PDF book into parts for ChatGPT or Claude">
+<meta name="twitter:description" content="Cut a 900-page book at its real chapter breaks, into parts that fit a chat window. Free, browser-only, nothing uploaded.">
+
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' fill='%23e7e4db'/><rect x='4' y='11' width='10' height='10' fill='%2323428f'/><rect x='18' y='11' width='10' height='10' fill='%2323428f'/><line x1='16' y1='6' x2='16' y2='26' stroke='%239e2b25' stroke-width='2'/></svg>">
 
 <style>
 :root{
@@ -95,14 +110,14 @@ footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mo
 <div class="wrap">
 
 <nav>
-  <div class="mark">Signature<span>.</span></div>
+  <div class="mark">Chunkbook<span>.</span></div>
   <a class="cta" href="app.html">Open the splitter</a>
 </nav>
 
 <div class="hero">
-  <span class="eyebrow">Cuts long books into parts a chat can hold</span>
+  <span class="eyebrow">PDF splitter for ChatGPT, Claude and other LLMs</span>
   <h1>It <em>actually</em><br>works.</h1>
-  <p class="lede">Drop in a 900-page PDF. Get back numbered files, cut at the <b>chapter breaks</b> rather than every 5,000 characters, each one labelled with the pages it came from and the parts on either side of it.</p>
+  <p class="lede">Your book is too large for the chat. Drop in a 900-page PDF and get back numbered files sized to fit the <b>context window</b> — cut at the <b>real chapter breaks</b> rather than every 5,000 characters, each one labelled with the pages it came from and the parts on either side of it.</p>
   <div class="herobtns">
     <a class="cta big" href="app.html">Open the splitter</a>
     <span class="fineprint">no account &middot; no upload &middot; one HTML file</span>
@@ -171,7 +186,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mo
 <section>
   <span class="eyebrow">Using it</span>
   <h2>Three steps, about a minute</h2>
-  <p class="sec-lede">There is nothing to learn. Every setting has a sensible default and a sentence next to it explaining what it does.</p>
+  <p class="sec-lede">Works with textbooks, manuals, reports, novels — any PDF, plain text or Markdown file that carries actual text. There is nothing to learn: every setting has a sensible default and a sentence next to it explaining what it does.</p>
   <div class="steps">
     <div class="step">
       <span class="n">STEP ONE</span>
@@ -201,7 +216,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mo
       <div class="x">&times;</div>
       <div>
         <h4>It can't read scanned pages</h4>
-        <p>A scan is a picture of a book, not a book. There is no text to cut. Signature does not do OCR and isn't going to — turning pictures back into text is a separate job, and doing it badly is worse than not doing it at all. Run the file through an OCR tool first. Compressing it doesn't help either, since a model would still be looking at pictures. Meanwhile the splitter can still cut the PDF itself into smaller page-range PDFs.</p>
+        <p>A scan is a picture of a book, not a book. There is no text to cut. Chunkbook does not do OCR and isn't going to — turning pictures back into text is a separate job, and doing it badly is worse than not doing it at all. Run the file through an OCR tool first. Compressing it doesn't help either, since a model would still be looking at pictures. Meanwhile the splitter can still cut the PDF itself into smaller page-range PDFs.</p>
       </div>
     </div>
     <div class="not">
@@ -235,7 +250,7 @@ footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mo
 </div>
 
 <footer>
-  <span>Signature &mdash; one HTML file. View source; there is nothing else to it.</span>
+  <span>Chunkbook &mdash; one HTML file. View source; there is nothing else to it.</span>
   <span>Runs entirely in your browser</span>
 </footer>
 

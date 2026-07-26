@@ -1,6 +1,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Signature — split a book into labelled parts</title>
+<title>Chunkbook — split a book into labelled parts</title>
 
 <script src="lib/pdf.min.js"></script>
 <script src="lib/jszip.min.js"></script>
@@ -260,7 +260,7 @@ tr.bad td{background:#9e2b2510}
 <header class="mast">
   <div class="mast-row">
     <div>
-      <h1>Signature<em>.</em></h1>
+      <h1>Chunkbook<em>.</em></h1>
       <p class="tagline">Cut a long document into labelled parts that fit in a model's context — along its own chapter boundaries, or along ranges you set by hand.</p>
     </div>
     <div class="mast-note">
@@ -301,7 +301,7 @@ tr.bad td{background:#9e2b2510}
     </div>
     <div id="scanwarn" class="notice hide">
       <b>This book has no text layer.</b> The pages are images, so there is nothing to read, label or cut into text.
-      <br><br><b>Signature does not do OCR</b> and there is no plan to add it. Turning pictures of pages back into text
+      <br><br><b>Chunkbook does not do OCR</b> and there is no plan to add it. Turning pictures of pages back into text
       is a separate job, and doing it badly is worse than not doing it at all. If you need the text, run the file
       through an OCR tool first and bring the result back here.
       <br><br>Compressing the file won't help either — a model would still have to look at every page as a picture.
@@ -552,7 +552,7 @@ const VERSION = "1.1";   // bump this when you change anything
     '<p style="margin:16px auto 0;max-width:56ch;color:var(--ink-3);font-size:13px">' +
       'Run <code>setup.sh</code> (or <code>setup.ps1</code> on Windows) once to download them, then reload.' +
     '</p>';
-  throw new Error("Signature: missing libraries — " + missing.join(", "));
+  throw new Error("Chunkbook: missing libraries — " + missing.join(", "));
 })();
 
 /* =========================================================
@@ -1064,7 +1064,7 @@ function renderLevels(){
 }
 
 /* ---- pages that are a table of contents or an index ----
-   Signature: most lines end in a page number, often after dot leaders. ---- */
+   Shape: most lines end in a page number, often after dot leaders. ---- */
 function looksLikeContents(page, loose){
   const K = loose ? 0.62 : 1;   // neighbours of a known run get an easier test
   let lines;
@@ -1916,7 +1916,7 @@ function diagnostics(){
   const L = [];
   const add = (k,v) => L.push(k.padEnd(22) + v);
 
-  add("signature version", VERSION);
+  add("chunkbook version", VERSION);
   add("page numbering", S.offset ? `printed = pdf − ${S.offset}` : "no offset detected");
 
   if(!S.pages.length){
@@ -1993,7 +1993,7 @@ if(FEEDBACK.email){
   b.onclick = () => {
     refreshDiag_ifEmpty();
     const url = "mailto:" + FEEDBACK.email +
-      "?subject=" + encodeURIComponent("Signature: " + $("#fb-kind").value) +
+      "?subject=" + encodeURIComponent("Chunkbook: " + $("#fb-kind").value) +
       "&body=" + encodeURIComponent(reportText());
     location.href = url;
   };

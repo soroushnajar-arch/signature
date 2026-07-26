@@ -1,4 +1,4 @@
-# Signature - one-time setup for Windows.
+# Chunkbook - one-time setup for Windows.
 # Downloads the four library files the splitter needs into .\lib
 # Run once, from PowerShell in this folder:
 #     powershell -ExecutionPolicy Bypass -File setup.ps1

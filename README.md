@@ -1,26 +1,49 @@
-# Signature
+# Chunkbook
 
-Cuts a long document into labelled parts that fit in a chat window — along its own
-chapter boundaries, or along page ranges you set by hand.
+Splits a long PDF book into labelled parts sized to fit an LLM's context window —
+cut at the book's own chapter boundaries, or at page ranges you set by hand.
 
-Everything runs in the browser. No server, no build step, no upload.
+Live at **https://chunkbook.pages.dev**
+
+Everything runs in the browser. No server, no build step, nothing uploaded.
 
 ```
-signature/
+chunkbook/
 ├── index.html      landing page
 ├── app.html        the splitter
 ├── setup.sh        downloads the libraries (macOS / Linux)
 ├── setup.ps1       downloads the libraries (Windows)
 ├── README.md       this file
-└── lib/            created by setup — four .js files, about 2 MB
+└── lib/            four .js files, about 2 MB — must be committed
 ```
+
+---
+
+## What it does
+
+- **Cuts at real structure.** PDF bookmarks when the file has them; headings
+  inferred from type size and numbering when it doesn't. If a section is still
+  too long it descends into the headings *inside* it before falling back to
+  cutting for length.
+- **Labels every part** with its full path — `PART 6 › SECTION 4 › 231 Heart
+  Failure` — plus page range, token estimate, and the parts either side. The
+  filename carries a compact version of the same chain.
+- **Reconciles page numbers.** Works out the offset between the printed page
+  numbers and the PDF's own numbering by reading the running heads, so ranges
+  match the book's contents page. On Harrison's it finds a 43-page offset.
+- **Skips contents and index pages**, detected by shape rather than by keyword —
+  dot leaders, short lines ending in rising page numbers, or alphabetically
+  ordered entries.
+- **Says when it is guessing.** A book with no contents list gets a clear warning
+  and a recommendation to cut by hand instead.
+- **Any language.** Heading detection covers Latin, Persian, Arabic, Cyrillic,
+  CJK and Korean scripts. Manual ranges never read the text at all.
 
 ---
 
 ## 1. Setup
 
-The libraries are not included, because they are somebody else's code and they
-change. Fetch them once:
+The libraries are not committed as source; fetch them once:
 
 **macOS / Linux**
 
@@ -34,10 +57,8 @@ bash setup.sh
 powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
-The script downloads four files into `lib/`, then checks each one is a real
-library rather than an error page saved under the right name.
-
-If you'd rather do it by hand, download these into `lib/` keeping the filenames:
+This downloads four files into `lib/` and checks each is a real library rather
+than an error page saved under the right name. By hand, keeping the filenames:
 
 | File | Source |
 |---|---|
@@ -46,194 +67,150 @@ If you'd rather do it by hand, download these into `lib/` keeping the filenames:
 | `jszip.min.js` | `https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js` |
 | `pdf-lib.min.js` | `https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js` |
 
-Keep these versions. pdf.js 4 and later changed to ES modules and will not work
+Keep these versions. pdf.js 4 and later moved to ES modules and will not work
 with this code.
 
 ---
 
 ## 2. Run it locally
 
-**Do not open `app.html` by double-clicking it.** Browsers block web workers on
-`file://` URLs, so PDF reading will fail. Serve the folder over HTTP instead:
+**Do not open `app.html` by double-clicking.** Browsers block web workers on
+`file://` URLs and PDF reading will fail. Serve the folder over HTTP:
 
 ```bash
-cd signature
+cd chunkbook
 python3 -m http.server 8000
 ```
 
-Then open <http://localhost:8000>.
-
-Any static server works — `npx serve`, `php -S localhost:8000`, whatever you have.
-If setup is incomplete or you opened the file the wrong way, the page says so and
-tells you which command to run.
+Then open <http://localhost:8000>. If setup is incomplete or the file was opened
+the wrong way, the page says so and prints the command to fix it.
 
 ---
 
 ## 3. Check it works
 
-Fifteen minutes with a real book beats any amount of reading the code. Use a PDF
-you know well — ideally one with proper bookmarks, and a second one without.
+Use a book you know well — ideally one with proper bookmarks and a second
+without.
 
 **Reading the file**
 
-- [ ] Page count in the top bar matches the real page count.
-- [ ] Word and token counts are non-zero and roughly plausible.
-- [ ] "Outline entries" says `bookmarks` for a PDF that has them, `detected` for
-      one that doesn't.
-- [ ] The detected structure list shows chapter titles you recognise, with page
-      numbers that are actually right. Spot-check three.
+- [ ] Page count matches the real page count.
+- [ ] "Outline entries" says `bookmarks` for a PDF that has them, `detected`
+      otherwise.
+- [ ] Detected structure lists chapter titles you recognise. Spot-check three
+      page numbers against the book.
+- [ ] If the printed numbering differs from the PDF's, the offset notice appears
+      with a confidence figure above ~80%.
+- [ ] Contents and index pages are flagged, and the run covers roughly the right
+      span rather than clipping to two or three pages.
 
-**Cutting from the outline**
+**Cutting**
 
-- [ ] Press *Build parts*. The parts list appears and the bar underneath goes blue
-      end to end, with no grey gaps.
-- [ ] Preview a part. The text starts at that chapter, not halfway through the
+- [ ] Parts appear on their own as soon as the file loads.
+- [ ] The structure chooser lists the book's real units — Parts, Sections,
+      Chapters — with counts, and marks one **best fit**.
+- [ ] The advice box under the size control either confirms nothing exceeded
+      three pieces, or names the worst section and offers a maximum that fixes it.
+- [ ] Preview a part: the text starts at that chapter, not mid-way through the
       previous one.
-- [ ] No part is flagged red for exceeding the maximum.
-- [ ] Change *Split at level* from 2 to 1 and rebuild — you should get noticeably
-      fewer, bigger parts.
-- [ ] Set the maximum to something small, like 2000, and rebuild. Oversized
-      chapters should split into `(1/3)`, `(2/3)`, `(3/3)` and the split should
-      land between paragraphs, never mid-sentence.
-- [ ] With overlap set above zero, the start of part 2 repeats the tail of part 1
-      after a leading `…`.
+- [ ] Set the maximum low, say 2000, and rebuild. Oversized sections split into
+      `(1/3)`, `(2/3)`, `(3/3)` at paragraph breaks, never mid-sentence.
+- [ ] With overlap above zero, part 2 opens with `…` followed by a **complete
+      sentence**, not a fragment.
+- [ ] The coverage bar is striped blue, not solid black, and its scale shows
+      about ten round numbers.
 
 **Manual ranges**
 
-- [ ] *Add a range*, type a name and a page span. It appears in the parts list
-      immediately with the right token estimate.
-- [ ] Type a last page past the end of the book. The row turns red and a warning
-      names the valid range.
-- [ ] *Split evenly into 10* covers the whole bar with ten equal segments.
-- [ ] Delete a range from the middle. A grey gap appears in the bar.
-- [ ] *Add uncovered pages as parts* fills that gap.
-- [ ] Two overlapping ranges show gold in the bar where they cross.
-- [ ] *Copy outline parts here* fills the table with the chapters, editable.
+- [ ] Adding a range shows the right token estimate immediately.
+- [ ] An out-of-bounds page turns the row red and names the valid range.
+- [ ] *Split evenly into 10* covers the whole bar; deleting a middle range leaves
+      a grey gap; *Add uncovered pages* fills it; overlapping ranges show gold.
+- [ ] *Copy outline parts here* fills the table with editable chapters.
 
 **Export**
 
-- [ ] *Copy* on a part puts the label block plus the text on the clipboard.
-- [ ] *Download all as ZIP* produces numbered `.md` files, `_index.md` and
-      `manifest.json`.
-- [ ] Open a chunk file. The header lists the right part number, page range and
-      neighbours.
-- [ ] Switch the format to *PDF page slices* and export. Each PDF opens and
-      contains exactly the pages its name claims.
+- [ ] ZIP contains numbered `.md` files, `_index.md` and `manifest.json`.
+- [ ] A chunk file's header carries the full path, both page numberings, and
+      `cut_basis`.
+- [ ] PDF page slices open and contain exactly the pages their name claims.
 - [ ] `manifest.json` parses as valid JSON.
 
-**Edge cases worth trying once**
+**Edge cases**
 
-- [ ] A scanned PDF with no text layer. Expected: a red notice explaining there is
-      nothing to read, the tool switching itself to manual mode and to PDF export.
-      It should not silently produce empty parts.
-- [ ] A one-page PDF. Expected: one part, no crash.
-- [ ] A very large PDF, 800 pages or more. Expected: the progress bar moves and
-      the page stays responsive. This is the slow path — a minute or two is normal.
-- [ ] A plain `.txt` file. Expected: it is treated as pseudo-pages of about 3,000
-      characters each, and the PDF export option is greyed out.
-- [ ] A password-protected PDF. Expected: a readable error, not a blank page.
+- [ ] Scanned PDF with no text layer → red notice, no OCR promised, switches to
+      manual mode and PDF export. Must not produce empty parts silently.
+- [ ] One-page PDF → one part, no crash.
+- [ ] 800+ page PDF → progress bar moves, page stays responsive, only the first
+      250 cards render with a note that all are exported.
+- [ ] Plain `.txt` → pseudo-pages of ~3,000 characters, PDF export greyed out.
+- [ ] Password-protected PDF → readable error, not a blank page.
 
-**Browsers**
-
-Test in Chrome and Firefox at least, and once on a phone. Clipboard copy is
-restricted on some mobile browsers — if it fails you get a toast saying so, which
-is the intended behaviour.
-
-If something breaks, open the browser console first. Errors are logged there with
-enough context to say which stage failed.
+Test in Chrome and Firefox, and once on a phone. Clipboard copy is restricted on
+some mobile browsers; a toast says so, which is intended.
 
 ---
 
-## 4. Put it on the internet
+## 4. Hosting
 
-There is no backend, so hosting is free and stays free. Pick one.
+Live on **Cloudflare Pages**, connected to this GitHub repository. Every commit
+to `main` redeploys automatically within seconds — there is no manual publish
+step.
 
-### Netlify Drop — fastest
+To reproduce the setup: Cloudflare dashboard → **Workers & Pages** → **Create
+application** → the *"Looking to deploy Pages?"* link → **Connect to Git** →
+select the repository → **Begin setup**, then:
 
-1. Go to <https://app.netlify.com/drop>.
-2. Drag the whole `signature` folder onto the page.
-3. You get an HTTPS address in under a minute.
+- Framework preset: **None**
+- Build command: **empty**
+- Build output directory: **empty**
+- Production branch: `main`
 
-No account needed to start, though you'll want one to keep the site and rename it.
+**Commit the `lib/` folder.** It is not fetched at deploy time; a `.gitignore`
+rule that excludes it will break the live site silently. This is the only common
+failure.
 
-### Cloudflare Pages — best reach
+HTTPS is automatic and required — clipboard access is blocked on plain HTTP.
 
-1. Sign in at <https://dash.cloudflare.com> → **Workers & Pages** → **Create** →
-   **Pages** → **Upload assets**.
-2. Upload the folder. Leave the build command empty; this is not a build.
-3. Deploys to `yourproject.pages.dev`.
-
-Cloudflare's network is the fastest of the three in most of Asia and the Middle
-East, which matters if that's where your users are.
-
-### GitHub Pages — most permanent
-
-1. Create a repository and push the folder contents to the root of `main`.
-2. **Settings → Pages → Source: Deploy from a branch**, pick `main` and `/ (root)`.
-3. Live at `https://yourname.github.io/reponame/` in a couple of minutes.
-
-The source stays public, which fits a tool whose main claim is that nothing leaves
-your machine — anyone can check.
-
-### Notes for all three
-
-- `index.html` is served automatically at the root. The links to `app.html` are
-  relative, so nothing needs changing.
-- **Commit the `lib/` folder.** It is not downloaded at deploy time. If you use
-  `.gitignore`, make sure it doesn't exclude `lib/`.
-- A custom domain is free on all three; you only pay for the domain itself.
-- HTTPS is automatic everywhere, which the tool needs — clipboard access is
-  blocked on plain HTTP.
-- No cookies, no analytics, no accounts, and no file ever leaves the browser, so
-  there is nothing to write a privacy policy about. Saying that plainly on the
-  page is worth more than a policy nobody reads.
+A custom domain attaches under **Custom domains** in the Pages project. If the
+domain is registered with Cloudflare the setup is instant; from another
+registrar, add a CNAME pointing at the `pages.dev` address.
 
 ---
 
-## 5. Collecting problem reports
+## 5. Problem reports
 
-The app has a **Something wrong?** section at the bottom. It builds a report from
+The **Something wrong?** section at the bottom of the app builds a report from
 what the tool was actually doing — page count, outline source and depth, detected
-page offset, how many parts were cut at a heading versus cut for size, the current
-settings, and the browser. No page content, no file name, nothing personal. The
-user can read and edit all of it before sending.
+offset, how many parts were cut at a heading versus cut for length, current
+settings, browser. No page content, no file name, nothing personal. The user can
+read and edit all of it before sending.
 
-Out of the box only **Copy the report** appears. To add the other two buttons, edit
-the top of the script block in `app.html`:
+Reports go to GitHub Issues. The address is set at the top of the script block in
+`app.html`:
 
 ```js
 const FEEDBACK = {
-  email:  "you@example.com",
-  issues: "https://github.com/you/signature/issues/new"
+  email:  "",
+  issues: "https://github.com/soroushnajar-arch/signature/issues/new"
 };
+
+const VERSION = "1.1";
 ```
 
-Fill in either, both, or neither:
-
-- `email` adds **Send by email** — opens the user's mail client with everything
-  prefilled. No service to sign up for, but you get reports into a personal inbox
-  and nobody else can see that a bug was already filed.
-- `issues` adds **Open an issue** — opens a prefilled GitHub issue form. Best if the
-  repository is public: reports are visible, searchable, and duplicates stop
-  arriving. Point it at any issue tracker that accepts `?title=` and `?body=`.
-
-Leave both empty and the report is still useful — the user copies it and sends it
-however they like.
-
-Bump `VERSION` in the same block when you change anything, so reports say which
-build they came from.
+Add an `email` to show a **Send by email** button alongside. Bump `VERSION`
+whenever you change anything, so reports say which build they came from.
 
 ---
 
 ## Known limits
 
-- **Scanned pages can't be read.** No text layer, no text. Signature does not do OCR and there is no plan to add
-  it — run the file through an OCR tool first. The splitter can still cut such a PDF into smaller page-range PDFs
-  in the meantime.
-- **Token counts are estimates**, derived from character mix rather than a real tokenizer. Expect ±15% and leave
-  headroom.
-- **Heading detection is heuristic** when a book has no built-in contents list. It says so plainly when it is
-  guessing, and recommends cutting by hand instead. Every cut can be corrected either way.
-- **Nothing is saved.** Close the tab and your ranges are gone.
-- Outline mode is tuned for English. Manual ranges work with any language, since
-  they never read the text.
+- **Scanned pages can't be read.** No text layer, no text. Chunkbook does not do
+  OCR and there is no plan to add it — run the file through an OCR tool first. It
+  can still cut such a PDF into smaller page-range PDFs in the meantime.
+- **Token counts are estimates**, derived from character mix rather than a real
+  tokenizer. Expect ±15% and leave headroom.
+- **Heading detection is heuristic** when a book has no built-in contents list.
+  It says so plainly when guessing and recommends cutting by hand.
+- **Nothing is saved.** Close the tab and the ranges you typed are gone.
+- **No EPUB yet.** Only PDF, plain text and Markdown.

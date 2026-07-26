@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Signature — one-time setup.
+# Chunkbook — one-time setup.
 # Downloads the four library files the splitter needs into ./lib
 # Run once:  bash setup.sh
 
