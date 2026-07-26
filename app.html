@@ -75,6 +75,21 @@ textarea{
 .fb .adv summary{padding-top:0}
 label.field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--ink-2)}
 .hint{font-size:11px;line-height:1.45;color:var(--ink-3);max-width:26ch}
+.chips{display:flex;gap:0;padding-bottom:8px}
+.chips button{
+  background:transparent;color:var(--ink-2);border:1px solid var(--rule);border-radius:0;
+  padding:7px 11px;font-family:var(--mono);font-size:12px;margin-left:-1px;
+}
+.chips button:first-child{border-radius:2px 0 0 2px}
+.chips button:last-child{border-radius:0 2px 2px 0}
+.chips button:hover{background:#0000000a;color:var(--ink);position:relative;z-index:1}
+.chips button[aria-pressed=true]{background:var(--lapis);color:var(--card);border-color:var(--lapis);position:relative;z-index:1}
+#size-advice{
+  border-left:3px solid var(--gold);background:#a6791f0d;padding:13px 16px;
+  display:flex;gap:16px;align-items:center;flex-wrap:wrap;
+}
+#size-advice.ok{border-left-color:var(--ok);background:#2f6b4f0d}
+#size-advice p{margin:0;flex:1;min-width:280px}
 .adv{margin-bottom:26px;border-top:1px solid var(--rule);padding-top:10px}
 .adv summary{
   cursor:pointer;font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;
@@ -210,6 +225,10 @@ tr.bad td{background:#9e2b2510}
 .part .t{font-family:var(--display);font-size:17px;margin:0}
 .part .p{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin:3px 0 0}
 .part .p b{color:var(--ink-2);font-weight:500}
+.part .crumb{
+  margin:0 0 3px;font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;
+  color:var(--ink-3);text-transform:uppercase;line-height:1.5;
+}
 .part .inner{margin:2px 0 0;font-size:12.5px;color:var(--ink-2);font-style:italic}
 .part .why{margin:7px 0 0}
 .tag{
@@ -350,25 +369,29 @@ tr.bad td{background:#9e2b2510}
       <input type="hidden" id="o-level" value="2">
     </div>
 
-    <div class="row" style="margin-bottom:8px;align-items:center">
+    <div class="row" style="margin-bottom:6px;align-items:flex-end">
+      <label class="field">Maximum tokens per part
+        <input type="number" id="o-max" value="9000" min="500" step="1000">
+        <span class="hint" id="size-hint"></span>
+      </label>
+      <div class="chips" id="size-chips">
+        <button data-v="6000">6k</button><button data-v="12000">12k</button><button data-v="25000">25k</button><button data-v="50000">50k</button><button data-v="100000">100k</button><button data-v="150000">150k</button>
+      </div>
       <button id="o-run">Rebuild the parts</button>
-      <span class="hint" style="max-width:44ch">Parts are built for you as soon as a file loads. Change anything and press this.</span>
     </div>
+
+    <div id="size-advice" class="hide" style="margin-bottom:22px"></div>
 
     <details class="adv">
       <summary>Fine tuning</summary>
       <div class="settings">
       <label class="field">Target size
-        <input type="number" id="o-target" value="6000" min="500" step="500">
-        <span class="hint">Roughly how big each part should be, in tokens. 6,000 suits most chats.</span>
-      </label>
-      <label class="field">Hard maximum
-        <input type="number" id="o-max" value="9000" min="600" step="500">
-        <span class="hint">No part goes past this. Anything longer is split at a paragraph break.</span>
+        <input type="number" id="o-target" value="6750" min="500" step="500">
+        <span class="hint">What it aims for. Follows the maximum on its own — set it here only if you want a different gap.</span>
       </label>
       <label class="field">Overlap
         <input type="number" id="o-overlap" value="60" min="0" step="10">
-        <span class="hint">Words repeated from the end of one part at the start of the next, so a split sentence still reads.</span>
+        <span class="hint">Words carried from the end of one part to the start of the next, when a section has to be split. Snaps to a sentence.</span>
       </label>
       <label class="field" style="gap:8px">
         <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="o-merge" checked style="width:auto"> Join short chapters</span>
@@ -560,8 +583,26 @@ function estTokens(s){
 }
 const fmt = n => n.toLocaleString("en-US");
 function slug(s,i){
-  const b = (s||"part").toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"-").replace(/^-+|-+$/g,"").slice(0,52);
+  const b = (s||"part").toLowerCase().replace(/[^\p{L}\p{N}]+/gu,"-").replace(/^-+|-+$/g,"").slice(0,74);
   return String(i).padStart(3,"0") + "-" + (b||"part");
+}
+
+/* the whole chain: PART 6 … › SECTION 4 … › 231 Heart Failure */
+function fullTitle(p){
+  return p.path ? p.path + " › " + p.title : p.title;
+}
+
+/* a compact version of the chain for filenames: part-6-section-4-231-heart-failure */
+function shortPath(p){
+  if(!p.path) return "";
+  return p.path.split("›").map(s => {
+    s = s.trim();
+    const m = s.match(/^(\p{L}+)\s*([0-9IVXLCivxlc\u06F0-\u06F9\u0660-\u0669]+)/u);
+    return m ? m[1] + "-" + m[2] : s.split(/\s+/).slice(0,2).join("-");
+  }).filter(Boolean).join("-");
+}
+function fileSlug(p,i){
+  return slug([shortPath(p), p.title].filter(Boolean).join(" "), i);
 }
 
 /* =========================================================
@@ -922,6 +963,7 @@ function afterLoad(){
 
   renderTree();
   renderOutlineWarning();
+  updateSizeHint();
   renderLevels();
   renderManual();
   autoBuild();
@@ -1023,12 +1065,13 @@ function renderLevels(){
 
 /* ---- pages that are a table of contents or an index ----
    Signature: most lines end in a page number, often after dot leaders. ---- */
-function looksLikeContents(page){
+function looksLikeContents(page, loose){
+  const K = loose ? 0.62 : 1;   // neighbours of a known run get an easier test
   let lines;
   if(page.lines && page.lines.length) lines = page.lines.map(l => l.text);
   else lines = (page.text||"").split("\n");
   lines = lines.map(s => s.trim()).filter(s => s.length > 3);
-  if(lines.length < 8) return false;
+  if(lines.length < (loose ? 5 : 8)) return false;
 
   const lens = lines.map(s => s.length).sort((a,b) => a-b);
   const medLen = lens[Math.floor(lens.length/2)];
@@ -1042,27 +1085,28 @@ function looksLikeContents(page){
   });
 
   // dot leaders are unambiguous
-  if(leaders >= lines.length*0.4) return true;
+  if(leaders >= lines.length*0.4*K) return true;
 
   // otherwise the lines must be short and mostly end in a number
-  if(medLen > 78) return false;
-  if(numbered < lines.length*0.6 || nums.length < 6) return false;
+  if(medLen > (loose ? 92 : 78)) return false;
+  if(numbered < lines.length*0.6*K || nums.length < (loose ? 4 : 6)) return false;
 
   // a table of contents climbs through the book
   let inc = 0;
   for(let i=1;i<nums.length;i++) if(nums[i] > nums[i-1]) inc++;
-  if(inc >= (nums.length-1)*0.6) return true;
+  if(inc >= (nums.length-1)*0.6*K) return true;
 
   // an index doesn't climb — it runs alphabetically instead
   const firsts = lines.map(t => t.replace(/^[^\p{L}]+/u,"").toLowerCase().slice(0,14)).filter(Boolean);
-  if(firsts.length < 8) return false;
+  if(firsts.length < (loose ? 5 : 8)) return false;
   let alpha = 0;
   for(let i=1;i<firsts.length;i++) if(firsts[i] > firsts[i-1]) alpha++;
-  return alpha >= (firsts.length-1)*0.75;
+  return alpha >= (firsts.length-1)*0.75*K;
 }
 
 function markContentsPages(){
   S.pages.forEach(p => { p.isToc = looksLikeContents(p); });
+
   // a lone flagged page in the middle of a chapter is usually a false positive;
   // real contents and indexes come in runs
   S.pages.forEach((p,i) => {
@@ -1070,6 +1114,19 @@ function markContentsPages(){
     const prev = S.pages[i-1], next = S.pages[i+1];
     if(!(prev && prev.isToc) && !(next && next.isToc)) p.isToc = false;
   });
+
+  // contents sections often start or end with a page that is only half a list —
+  // a heading, a preamble, a stray paragraph. Grow each run outward using a
+  // looser test, so a 13-page contents doesn't get clipped to 5.
+  for(let pass=0; pass<8; pass++){
+    let grew = false;
+    S.pages.forEach((p,i) => {
+      if(p.isToc) return;
+      const touching = (S.pages[i-1] && S.pages[i-1].isToc) || (S.pages[i+1] && S.pages[i+1].isToc);
+      if(touching && looksLikeContents(p, true)){ p.isToc = true; grew = true; }
+    });
+    if(!grew) break;
+  }
   return S.pages.filter(p => p.isToc).length;
 }
 
@@ -1079,13 +1136,20 @@ function rebuildPrefix(){
 }
 function skipped(p){ return S.skipToc && p.isToc; }
 
+function pageRange(a,b){
+  const A = showPage(a), B = showPage(b);
+  const front = /^pdf/.test(A) && /^pdf/.test(B);
+  if(front) return a === b ? `PDF page ${a}` : `PDF pages ${a}–${b}`;
+  return a === b ? `p. ${A}` : `pp. ${A}–${B}`;
+}
+
 function runsOfToc(){
   const runs = []; let start = null;
   S.pages.forEach((p,i) => {
     if(p.isToc && start === null) start = i+1;
     if((!p.isToc || i === S.pages.length-1) && start !== null){
       const end = p.isToc ? i+1 : i;
-      runs.push(start === end ? `p. ${showPage(start)}` : `pp. ${showPage(start)}–${showPage(end)}`);
+      runs.push(pageRange(start, end));
       start = null;
     }
   });
@@ -1198,6 +1262,85 @@ function renderOutlineWarning(){
   box.appendChild(btn);
 }
 
+/* ---- part size, expressed in pages of the book in front of you ---- */
+/* ---- the maximum is the control the reader actually thinks in ---- */
+function updateSizeHint(){
+  const el2 = $("#size-hint");
+  const m = +$("#o-max").value;
+  let txt;
+  if(!S.pages || !S.pages.length || !S.tokPrefix){
+    txt = `${fmt(m)} tokens at most`;
+  } else {
+    const per = S.tokPrefix[S.pages.length] / S.pages.length;
+    txt = per ? `at most ≈${fmt(Math.max(1,Math.round(m/per)))} pages of this book`
+              : `${fmt(m)} tokens at most`;
+  }
+  if(m >= 50000) txt += " — a model attends less closely to the middle of a very long stretch, and the ±15% size estimate is now ±" + fmt(Math.round(m*0.15)) + " tokens.";
+  el2.textContent = txt;
+  el2.style.maxWidth = m >= 50000 ? "54ch" : "28ch";
+  [...$("#size-chips").children].forEach(b => b.setAttribute("aria-pressed", +b.dataset.v === m));
+}
+
+/* the target trails the maximum unless someone sets it deliberately */
+function applyMax(m, rebuild){
+  m = Math.max(500, Math.round(m));
+  $("#o-max").value = m;
+  $("#o-target").value = Math.round(m * 0.75);
+  updateSizeHint();
+  renderLevels();
+  if(rebuild !== false){
+    if(S.parts.length && S.partsMode === "outline") buildFromOutline(true);
+    else renderParts();
+    if(S.manual.length) renderManual();
+  }
+}
+
+$("#o-max").onchange = e => applyMax(+e.target.value || 9000);
+[...$("#size-chips").children].forEach(b => {
+  b.onclick = () => applyMax(+b.dataset.v);
+});
+$("#o-target").onchange = () => { updateSizeHint(); renderLevels(); renderParts(); };
+
+/* ---- would a different maximum give kinder parts? ---- */
+function renderSizeAdvice(){
+  const box = $("#size-advice");
+  box.innerHTML = ""; box.className = "hide";
+  if(S.partsMode !== "outline" || !S.parts.length) return;
+
+  let worst = null;
+  S.parts.forEach(p => { if(p.pieceCount > 1 && (!worst || p.pieceCount > worst.pieceCount)) worst = p; });
+
+  const p = el("p");
+  if(!worst){
+    box.className = "ok";
+    p.innerHTML = "<b>Every part sits on a real heading.</b> Nothing had to be cut for length at this maximum.";
+    box.appendChild(p);
+    return;
+  }
+
+  const name = (worst.title || "").replace(/\s*\(\d+\/\d+\)\s*$/, "");
+  if(worst.pieceCount <= 3){
+    box.className = "ok";
+    p.innerHTML = `<b>The longest section splits into ${worst.pieceCount} parts.</b> ` +
+      `That is “${name.slice(0,60)}”, and ${worst.pieceCount} is a comfortable number — the pieces still read as one argument.`;
+    box.appendChild(p);
+    return;
+  }
+
+  // packing happens against the target, which trails the maximum at 75%
+  const suggest = Math.ceil(worst.sectionTokens/3/0.75/1000)*1000;
+  box.className = "";
+  p.innerHTML = `<b>The longest section splits into ${worst.pieceCount} parts.</b> ` +
+    `That is “${name.slice(0,60)}” — ${fmt(worst.sectionTokens)} tokens broken into ${worst.pieceCount} pieces, ` +
+    `which is more than a chapter usually survives. Raising the maximum to <b>${fmt(suggest)}</b> would bring it down to 3.`;
+  box.appendChild(p);
+
+  const btn = el("button");
+  btn.textContent = `Use ${fmt(suggest)}`;
+  btn.onclick = () => applyMax(suggest);
+  box.appendChild(btn);
+}
+
 /* ---- structure list ---- */
 function renderTree(){
   const box = $("#tree"); box.innerHTML = "";
@@ -1259,11 +1402,23 @@ function buildFromOutline(quiet){
     const merged = [];
     for(const s of secs){
       const prev = merged[merged.length-1];
+      let done = false;
       if(prev && prev.tokens + s.tokens <= opt.target && s.tokens < opt.target*0.5 && prev.level >= s.level){
-        const joined = makeSec(prev.title + " + " + s.title, prev.path, prev.level,
-                               prev.startPage, s.endPage, opt.src + ", short sections joined");
-        merged[merged.length-1] = joined;
-      } else merged.push(s);
+        const n = (prev._n || 1) + 1;
+        const first = prev._first || prev.title;
+        const title = n <= 2 ? first + " + " + s.title : `${first} → ${s.title}`;
+        const joined = makeSec(title, prev.path, prev.level,
+                               prev.startPage, s.endPage,
+                               opt.src + `, ${n} sections joined`);
+        // the joined page span can sweep up pages that belonged to neither
+        // section, so measure the result rather than trusting the sum
+        if(joined.tokens <= opt.target){
+          joined._n = n; joined._first = first;
+          merged[merged.length-1] = joined;
+          done = true;
+        }
+      }
+      if(!done) merged.push(s);
     }
     secs = merged;
   }
@@ -1347,6 +1502,8 @@ function expand(s, opt, depth){
     inner: headingIn(pc.startPage, pc.endPage, s.title),
     text: pc.text, tokens: estTokens(pc.text),
     startPage: pc.startPage, endPage: pc.endPage,
+    pieceCount: pieces.length,
+    sectionTokens: s.tokens,
     basis: i === 0 ? s.basis + ", then cut for size"
                    : "cut for size, at a paragraph break"
   }));
@@ -1366,8 +1523,11 @@ function splitBlocks(blocks, target, overlapWords){
     });
     carry = "";
     if(overlapWords > 0){
-      const tail = body.split(/\s+/).slice(-overlapWords).join(" ");
-      if(tail) carry = "…" + tail;
+      let tail = body.split(/\s+/).slice(-overlapWords).join(" ");
+      // begin the overlap at a sentence, not halfway through one
+      const m = tail.match(/[.!?。！？؟][)"'”’»]?\s+/);
+      if(m) tail = tail.slice(m.index + m[0].length);
+      if(tail.trim()) carry = "…" + tail.trim();
     }
     cur = []; curTok = 0;
   };
@@ -1484,18 +1644,29 @@ function drawBand(){
   const px = p => (p-1)/N * W;
   let g = `<rect x="0" y="26" width="${W}" height="22" fill="var(--rule)" opacity=".5"/>`;
 
-  // coverage
+  // each part as its own block, alternating tone so boundaries stay readable
+  // even when there are hundreds of them
+  S.parts.forEach((pt,i) => {
+    const x = px(pt.startPage);
+    const w = Math.max(0.6, px(Math.min(pt.endPage+1, N+1)) - x);
+    g += `<rect x="${x.toFixed(2)}" y="26" width="${w.toFixed(2)}" height="22" `+
+         `fill="var(--lapis)" opacity="${i%2 ? .5 : .82}"/>`;
+  });
+
+  // pages claimed by more than one part
   const depth = new Array(N+2).fill(0);
   S.parts.forEach(pt => { for(let p=pt.startPage;p<=pt.endPage;p++) if(p>=1&&p<=N) depth[p]++; });
   let run = 0;
   for(let p=1;p<=N+1;p++){
-    if(depth[p] && !run) run = p;
-    if(run && (!depth[p] || p===N+1 || depth[p]!==depth[run])){
-      const x = px(run), w = Math.max(0.7, px(p)-px(run));
-      g += `<rect x="${x.toFixed(2)}" y="26" width="${w.toFixed(2)}" height="22" fill="${depth[run]>1?"var(--gold)":"var(--lapis)"}" opacity="${depth[run]>1?.85:.78}"/>`;
-      run = depth[p] ? p : 0;
+    const over = depth[p] > 1;
+    if(over && !run) run = p;
+    if(run && (!over || p===N+1)){
+      const x = px(run), w = Math.max(0.6, px(p)-px(run));
+      g += `<rect x="${x.toFixed(2)}" y="26" width="${w.toFixed(2)}" height="22" fill="var(--gold)" opacity=".85"/>`;
+      run = 0;
     }
   }
+
   // contents / index pages left out
   if(S.skipToc){
     let r = 0;
@@ -1503,30 +1674,42 @@ function drawBand(){
       const on = S.pages[p-1] && S.pages[p-1].isToc;
       if(on && !r) r = p;
       if(r && (!on || p===N+1)){
-        const x = px(r), w = Math.max(0.7, px(p)-px(r));
-        g += `<rect x="${x.toFixed(2)}" y="20" width="${w.toFixed(2)}" height="5" fill="var(--ink-3)" opacity=".7"/>`;
+        const x = px(r), w = Math.max(0.9, px(p)-px(r));
+        g += `<rect x="${x.toFixed(2)}" y="20" width="${w.toFixed(2)}" height="5" fill="var(--ink-3)" opacity=".8"/>`;
         r = 0;
       }
     }
   }
-  // cut lines
-  S.parts.forEach(pt => {
-    const x = px(pt.startPage);
-    g += `<line x1="${x.toFixed(2)}" y1="20" x2="${x.toFixed(2)}" y2="54" stroke="var(--ink)" stroke-width="1"/>`;
-  });
-  // rubric ticks for headings
-  S.outline.forEach(h => {
-    if(h.level > 2) return;
+
+  // cut lines are only legible when there aren't many; past that the
+  // alternating blocks do the same job without turning the bar black
+  if(S.parts.length <= 60){
+    S.parts.forEach(pt => {
+      const x = px(pt.startPage);
+      g += `<line x1="${x.toFixed(2)}" y1="20" x2="${x.toFixed(2)}" y2="54" stroke="var(--ink)" stroke-width="1"/>`;
+    });
+  }
+
+  // heading marks, thinned out if the book has hundreds
+  const heads = S.outline.filter(h => h.level <= 2);
+  const every = Math.ceil(heads.length / 160) || 1;
+  heads.forEach((h,i) => {
+    if(h.level > 1 && i % every) return;
     const x = px(h.page);
-    g += `<line x1="${x.toFixed(2)}" y1="8" x2="${x.toFixed(2)}" y2="${h.level===1?20:15}" stroke="var(--rubric)" stroke-width="${h.level===1?1.4:.8}"/>`;
+    g += `<line x1="${x.toFixed(2)}" y1="8" x2="${x.toFixed(2)}" y2="${h.level===1?20:15}" `+
+         `stroke="var(--rubric)" stroke-width="${h.level===1?1.4:.7}"/>`;
   });
-  // scale
-  const step = N>400?100:N>150?50:N>40?10:5;
+
+  // about ten labels, on a round number
+  const rough = N/10;
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(1,rough))));
+  const step = [1,2,2.5,5,10].map(m => m*mag).find(s => s >= rough) || mag*10;
   for(let p=step;p<N;p+=step){
-    const lbl = showPage(p);
+    const lbl = showPage(Math.round(p));
     if(/^pdf/.test(lbl)) continue;
-    g += `<line x1="${px(p).toFixed(2)}" y1="48" x2="${px(p).toFixed(2)}" y2="53" stroke="var(--ink-3)" stroke-width=".6"/>`;
-    g += `<text x="${px(p).toFixed(2)}" y="66" font-family="ui-monospace,monospace" font-size="9" fill="var(--ink-3)" text-anchor="middle">${lbl}</text>`;
+    const x = px(Math.round(p));
+    g += `<line x1="${x.toFixed(2)}" y1="48" x2="${x.toFixed(2)}" y2="53" stroke="var(--ink-3)" stroke-width=".6"/>`;
+    g += `<text x="${x.toFixed(2)}" y="66" font-family="ui-monospace,monospace" font-size="9.5" fill="var(--ink-3)" text-anchor="middle">${lbl}</text>`;
   }
   svg.innerHTML = g;
 }
@@ -1537,7 +1720,7 @@ function drawBand(){
 function renderParts(){
   const box = $("#parts"); box.innerHTML = "";
   const sec = $("#partsec");
-  if(!S.parts.length){ sec.classList.add("hide"); drawBand(); return; }
+  if(!S.parts.length){ sec.classList.add("hide"); renderSizeAdvice(); drawBand(); return; }
   sec.classList.remove("hide");
 
   const target = +$("#o-target").value, hardMax = +$("#o-max").value;
@@ -1553,11 +1736,12 @@ function renderParts(){
   const CAP = 250;
   const shown = S.parts.slice(0, CAP);
   shown.forEach((p,i) => {
-    const over = p.tokens > hardMax, tiny = p.tokens < target*0.25;
+    const over = p.tokens > hardMax, tiny = p.tokens < Math.min(target*0.25, 3000);
     const c = el("div","part" + (over?" over":tiny?" tiny":""));
     c.innerHTML = `
       <div class="no">${String(i+1).padStart(2,"0")}</div>
       <div>
+        <p class="crumb"></p>
         <p class="t"></p>
         <p class="inner"></p>
         <p class="p"><b>pp. ${showPage(p.startPage)}–${showPage(p.endPage)}</b>${(S.pageMode==="printed"&&S.offset)?` <span style="opacity:.7">(pdf ${p.startPage}–${p.endPage})</span>`:""} · ≈${fmt(p.tokens)} tokens · ${fmt(p.text.length)} chars${over?' · <span style="color:var(--rubric)">over the maximum</span>':tiny?' · <span style="color:var(--ink-3)">very small</span>':''}</p>
@@ -1569,13 +1753,14 @@ function renderParts(){
         <button class="quiet dl">Save</button>
       </div>`;
     c.querySelector(".t").textContent = p.title;
+    const crumb = c.querySelector(".crumb");
+    if(p.path) crumb.textContent = p.path.replace(/\s*›\s*/g, "  ›  "); else crumb.remove();
     const innerEl = c.querySelector(".inner");
     if(p.inner) innerEl.textContent = "opens at: " + p.inner; else innerEl.remove();
     const tag = c.querySelector(".tag");
     tag.textContent = p.basis || "unknown";
     if(/cut for size/.test(p.basis||"")) tag.classList.add("size");
     if(/by hand/.test(p.basis||"")) tag.classList.add("hand");
-    if(p.path) c.querySelector(".t").title = p.path + " › " + p.title;
 
     c.querySelector(".peek").onclick = () => {
       const ex = c.querySelector(".part-body");
@@ -1590,8 +1775,8 @@ function renderParts(){
     };
     c.querySelector(".dl").onclick = async () => {
       const f = $("#x-format").value;
-      if(f === "pdf"){ const bytes = await slicePdf(p); saveBlob(new Blob([bytes],{type:"application/pdf"}), slug(p.title,i+1)+".pdf"); }
-      else saveBlob(new Blob([fileBody(p,i)],{type:"text/plain;charset=utf-8"}), slug(p.title,i+1)+"."+f);
+      if(f === "pdf"){ const bytes = await slicePdf(p); saveBlob(new Blob([bytes],{type:"application/pdf"}), fileSlug(p,i+1)+".pdf"); }
+      else saveBlob(new Blob([fileBody(p,i)],{type:"text/plain;charset=utf-8"}), fileSlug(p,i+1)+"."+f);
     };
     box.appendChild(c);
   });
@@ -1602,6 +1787,7 @@ function renderParts(){
       `<span style="color:var(--ink-3);font-size:13px">All ${fmt(S.parts.length)} are included when you download.</span>`;
     box.appendChild(more);
   }
+  renderSizeAdvice();
   drawBand();
 }
 
@@ -1613,9 +1799,12 @@ function label(p,i){
     "---",
     `source: ${S.name}`,
     `part: ${i+1} of ${S.parts.length}`,
-    `title: ${p.title.replace(/\n/g," ")}`,
+    `title: ${fullTitle(p).replace(/\n/g," ")}`,
   ];
-  if(p.path) L.push(`section_path: ${p.path}`);
+  if(p.path){
+    L.push(`leaf_title: ${p.title.replace(/\n/g," ")}`);
+    p.path.split("›").forEach((seg,n) => L.push(`level_${n+1}: ${seg.trim()}`));
+  }
   if(p.inner) L.push(`opens_at: ${p.inner.replace(/\n/g," ")}`);
   L.push(
     ...(S.offset
@@ -1625,8 +1814,8 @@ function label(p,i){
     `cut_basis: ${p.basis || "unknown"}`,
     `tokens_est: ${p.tokens}`,
     `characters: ${p.text.length}`,
-    `previous: ${i>0 ? slug(S.parts[i-1].title,i) : "none"}`,
-    `next: ${i+1<S.parts.length ? slug(S.parts[i+1].title,i+2) : "none"}`,
+    `previous: ${i>0 ? fileSlug(S.parts[i-1],i) : "none"}`,
+    `next: ${i+1<S.parts.length ? fileSlug(S.parts[i+1],i+2) : "none"}`,
     `cut_by: ${S.partsMode}`,
     `generated: ${new Date().toISOString().slice(0,10)}`,
     "---",""
@@ -1635,7 +1824,14 @@ function label(p,i){
 }
 function fileBody(p,i){
   const head = $("#x-front").checked ? label(p,i) : "";
-  const title = $("#x-format").value === "md" ? `# ${p.title}\n\n` : "";
+  const md = $("#x-format").value === "md";
+  let title = "";
+  if(md){
+    title = `# ${p.title}\n\n`;
+    if(p.path) title = `# ${fullTitle(p)}\n\n`;
+  } else if(p.path){
+    title = fullTitle(p) + "\n\n";
+  }
   return head + title + p.text + "\n";
 }
 function indexFile(){
@@ -1645,7 +1841,7 @@ function indexFile(){
     `Source pages: ${S.pages.length}. Total ≈${fmt(S.parts.reduce((a,p)=>a+p.tokens,0))} tokens.`, "",
     "| # | Part | Pages | ≈Tokens | Cut at |", "|---|---|---|---|---|"
   ];
-  S.parts.forEach((p,i) => lines.push(`| ${i+1} | ${p.title.replace(/\|/g,"/")} | ${showPage(p.startPage)}–${showPage(p.endPage)} | ${fmt(p.tokens)} | ${p.basis||"unknown"} |`));
+  S.parts.forEach((p,i) => lines.push(`| ${i+1} | ${fullTitle(p).replace(/\|/g,"/")} | ${showPage(p.startPage)}–${showPage(p.endPage)} | ${fmt(p.tokens)} | ${p.basis||"unknown"} |`));
   lines.push("", "---", "", "Suggested preamble when you hand one part to a model:", "",
     "> This is part {n} of {total} of \"" + S.name + "\", covering pages {a}–{b}. Earlier and later parts exist and are not included. Answer only from what is here, and say so if something referenced falls outside this part.");
   return lines.join("\n");
@@ -1657,8 +1853,10 @@ function manifestFile(){
     contents_pages_skipped:S.skipToc ? S.pages.filter(p=>p.isToc).length : 0,
     generated:new Date().toISOString(),
     parts:S.parts.map((p,i)=>({
-      index:i+1, file:slug(p.title,i+1)+"."+$("#x-format").value, title:p.title,
-      section_path:p.section_path||p.path||null,
+      index:i+1, file:fileSlug(p,i+1)+"."+$("#x-format").value,
+      title:p.title, full_path:fullTitle(p),
+      levels:(p.path ? p.path.split("\u203a").map(x=>x.trim()) : []).concat([p.title]),
+      section_path:p.path||null,
       start_page:p.startPage, end_page:p.endPage,
       start_page_printed:S.offset?showPageRaw(p.startPage):null,
       end_page_printed:S.offset?showPageRaw(p.endPage):null,
@@ -1695,8 +1893,8 @@ $("#x-zip").onclick = async () => {
     for(let i=0;i<S.parts.length;i++){
       const p = S.parts[i];
       btn.textContent = `Packing ${i+1}/${S.parts.length}…`;
-      if(f === "pdf") zip.file(slug(p.title,i+1)+".pdf", await slicePdf(p));
-      else zip.file(slug(p.title,i+1)+"."+f, fileBody(p,i));
+      if(f === "pdf") zip.file(fileSlug(p,i+1)+".pdf", await slicePdf(p));
+      else zip.file(fileSlug(p,i+1)+"."+f, fileBody(p,i));
       if(i%5===0) await new Promise(r=>setTimeout(r));
     }
     if($("#x-index").checked){
@@ -1815,6 +2013,4 @@ if(!FEEDBACK.email && !FEEDBACK.issues){
 }
 
 $("#x-format").onchange = () => renderParts();
-$("#o-max").onchange = () => { renderLevels(); renderParts(); if(S.manual.length) renderManual(); };
-$("#o-target").onchange = () => { renderLevels(); renderParts(); };
 </script>
