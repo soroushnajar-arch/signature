@@ -320,6 +320,22 @@ tr.bad td{background:#9e2b2510}
         <span class="hint" style="max-width:34ch">Everything below — the ranges you type and the labels you get — uses whichever you pick.</span>
       </div>
     </div>
+    <div id="fignote" class="notice info hide">
+      <b>Pictures don't survive a text export.</b> Diagrams, treatment algorithms, tables set as images, scans —
+      none of it comes through, and the text around it will keep referring to figures that aren't there.
+      <div class="row" style="margin-top:11px;align-items:center;gap:16px">
+        <button class="ghost" id="fig-scan">Look for figures</button>
+        <span class="hint" id="fig-say" style="max-width:46ch">Takes about as long as reading the file did. Nothing changes until you ask for it.</span>
+      </div>
+      <div id="fig-opts" class="hide" style="margin-top:11px;display:flex;gap:20px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px">
+          <input type="checkbox" id="fig-mark" checked style="width:auto"> Mark where each figure was
+        </label>
+        <label style="display:flex;align-items:center;gap:7px;font-size:13px">
+          <input type="checkbox" id="fig-imgs" style="width:auto"> Save those pages as images in the ZIP
+        </label>
+      </div>
+    </div>
     <div id="tocnote" class="notice info hide">
       <b><span id="toc-n"></span></b> look like a table of contents or an index &mdash;
       <span id="toc-where" class="mono" style="font-size:12px"></span>.
@@ -665,6 +681,7 @@ async function loadPdf(file){
   S.pdfBytes = new Uint8Array(buf.slice(0));
   pdfjsLib.GlobalWorkerOptions.workerSrc = "lib/pdf.worker.min.js";
   const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf.slice(0)) }).promise;
+  S.pdfDoc = pdf;
 
   const N = pdf.numPages;
   const pageLines = [];
@@ -960,6 +977,23 @@ function afterLoad(){
     $("#x-format").value = "pdf";
   }
   $("#x-format").querySelector('option[value=pdf]').disabled = (S.ext !== "pdf");
+
+  if(S.ext === "pdf" && S.hasText){
+    $("#fignote").classList.remove("hide");
+    $("#fig-scan").onclick = async () => {
+      await scanFigures();
+      const withFigs = S.pages.filter(p => p.figures).length;
+      $("#fig-say").textContent = withFigs
+        ? `${fmt(withFigs)} of ${fmt(S.pages.length)} pages carry at least one picture.`
+        : "No pictures found — this book is all text.";
+      if(withFigs){
+        $("#fig-opts").classList.remove("hide");
+        S.markFigures = $("#fig-mark").checked;
+        rebuildAfterFigures();
+      }
+    };
+    $("#fig-mark").onchange = e => { S.markFigures = e.target.checked; rebuildAfterFigures(); };
+  }
 
   renderTree();
   renderOutlineWarning();
@@ -1434,8 +1468,79 @@ function buildFromOutline(quiet){
   if(quiet !== true) document.querySelector("#partsec").scrollIntoView({behavior:"smooth", block:"start"});
 }
 
+
+/* =========================================================
+   figures
+   pdf.js hands over text only, so anything drawn as an image —
+   a flowchart, an ECG trace, a table set as a picture — vanishes
+   silently. Find those pages so they can at least be pointed at,
+   and rendered whole if wanted.
+========================================================= */
+async function scanFigures(){
+  if(!S.pdfDoc) return 0;
+  const N = S.pages.length;
+  const btn = $("#fig-scan");
+  btn.disabled = true;
+  const OPS = pdfjsLib.OPS;
+  const imageOps = new Set([OPS.paintImageXObject, OPS.paintJpegXObject,
+                            OPS.paintInlineImage, OPS.paintImageMaskXObject]);
+  let hits = 0;
+  for(let i=1;i<=N;i++){
+    if(i%10===0 || i===N) btn.textContent = `Looking… ${Math.round(i/N*100)}%`;
+    try{
+      const page = await S.pdfDoc.getPage(i);
+      const ops = await page.getOperatorList();
+      let n = 0;
+      for(const fn of ops.fnArray) if(imageOps.has(fn)) n++;
+      S.pages[i-1].figures = n;
+      if(n) hits++;
+      page.cleanup();
+    }catch(e){ S.pages[i-1].figures = 0; }
+    if(i%20===0) await new Promise(r=>setTimeout(r));
+  }
+  S.figuresScanned = true;
+  btn.textContent = "Scan again";
+  btn.disabled = false;
+  return hits;
+}
+
+function rebuildAfterFigures(){
+  rebuildPrefix();
+  if(S.parts.length && S.partsMode === "outline") buildFromOutline(true);
+  else if(S.manual.length) renderManual();
+  else renderParts();
+}
+
+function figuresIn(a,b){
+  let n = 0;
+  for(let p=a;p<=b;p++){ const pg = S.pages[p-1]; if(pg && pg.figures) n++; }
+  return n;
+}
+
+async function renderPageJpeg(n, scale){
+  const page = await S.pdfDoc.getPage(n);
+  const vp = page.getViewport({ scale });
+  const c = document.createElement("canvas");
+  c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+  await page.render({ canvasContext: c.getContext("2d"), viewport: vp }).promise;
+  const blob = await new Promise(r => c.toBlob(r, "image/jpeg", 0.72));
+  c.width = c.height = 0;
+  page.cleanup();
+  return blob;
+}
+
+function figureNote(pg){
+  if(!S.markFigures || !pg.figures) return "";
+  return `[figure: page ${pg.n}]`;
+}
 function textOfPages(a,b){
-  return S.pages.slice(a-1, b).filter(p => !skipped(p)).map(p => p.text).filter(Boolean).join("\n\n").trim();
+  const out = [];
+  S.pages.slice(a-1, b).filter(p => !skipped(p)).forEach(p => {
+    const note = figureNote(p);
+    if(note) out.push(note);
+    if(p.text) out.push(p.text);
+  });
+  return out.join("\n\n").trim();
 }
 /* cheap range estimate — avoids re-joining megabytes of text on every keystroke */
 function tokensOfPages(a,b){
@@ -1455,7 +1560,10 @@ function blocksOfPages(a,b){
   const out = [];
   for(let p=a;p<=b;p++){
     const pg = S.pages[p-1];
-    if(!pg || !pg.text || skipped(pg)) continue;
+    if(!pg || skipped(pg)) continue;
+    const note = figureNote(pg);
+    if(note) out.push({ text:note, page:p });
+    if(!pg.text) continue;
     pg.text.split(/\n{2,}/).forEach(t => { t = t.trim(); if(t) out.push({ text:t, page:p }); });
   }
   return out;
@@ -1824,6 +1932,7 @@ function label(p,i){
 }
 function fileBody(p,i){
   const head = $("#x-front").checked ? label(p,i) : "";
+  const withImgs = S.figuresScanned && $("#fig-imgs") && $("#fig-imgs").checked;
   const md = $("#x-format").value === "md";
   let title = "";
   if(md){
@@ -1832,7 +1941,16 @@ function fileBody(p,i){
   } else if(p.path){
     title = fullTitle(p) + "\n\n";
   }
-  return head + title + p.text + "\n";
+  let body = p.text;
+  if(withImgs){
+    body = body.replace(/\[figure: page (\d+)\]/g,
+      (m,n) => md ? `![figure from page ${n}](images/p${String(n).padStart(4,"0")}.jpg)`
+                  : `[figure from page ${n} — see images/p${String(n).padStart(4,"0")}.jpg]`);
+  } else {
+    body = body.replace(/\[figure: page (\d+)\]/g,
+      (m,n) => `[figure on page ${n} — a picture, not included in this text]`);
+  }
+  return head + title + body + "\n";
 }
 function indexFile(){
   const lines = [
@@ -1851,6 +1969,7 @@ function manifestFile(){
     source:S.name, source_pages:S.pages.length, cut_by:S.partsMode,
     printed_page_offset:S.offset || 0,
     contents_pages_skipped:S.skipToc ? S.pages.filter(p=>p.isToc).length : 0,
+    figure_pages:S.figuresScanned ? S.pages.filter(p=>p.figures).length : null,
     generated:new Date().toISOString(),
     parts:S.parts.map((p,i)=>({
       index:i+1, file:fileSlug(p,i+1)+"."+$("#x-format").value,
@@ -1861,6 +1980,7 @@ function manifestFile(){
       start_page_printed:S.offset?showPageRaw(p.startPage):null,
       end_page_printed:S.offset?showPageRaw(p.endPage):null,
       cut_basis:p.basis||null, opens_at:p.inner||null,
+      figure_pages:S.figuresScanned ? figuresIn(p.startPage,p.endPage) : null,
       tokens_est:p.tokens, characters:p.text.length
     }))
   }, null, 2);
@@ -1897,6 +2017,27 @@ $("#x-zip").onclick = async () => {
       else zip.file(fileSlug(p,i+1)+"."+f, fileBody(p,i));
       if(i%5===0) await new Promise(r=>setTimeout(r));
     }
+    // whole pages that carry a picture, rendered so figures aren't lost
+    if(S.figuresScanned && $("#fig-imgs").checked && f !== "pdf"){
+      const wanted = new Set();
+      S.parts.forEach(pt => {
+        for(let n=pt.startPage;n<=pt.endPage;n++){
+          const pg = S.pages[n-1];
+          if(pg && pg.figures && !skipped(pg)) wanted.add(n);
+        }
+      });
+      const list = [...wanted].sort((a,b)=>a-b);
+      let done = 0;
+      for(const n of list){
+        btn.textContent = `Rendering figure pages ${++done}/${list.length}…`;
+        try{
+          const blob = await renderPageJpeg(n, 1.6);
+          if(blob) zip.file(`images/p${String(n).padStart(4,"0")}.jpg`, blob);
+        }catch(e){ console.warn("page "+n, e); }
+        if(done%4===0) await new Promise(r=>setTimeout(r));
+      }
+    }
+
     if($("#x-index").checked){
       zip.file("_index.md", indexFile());
       zip.file("manifest.json", manifestFile());
