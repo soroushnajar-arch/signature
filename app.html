@@ -397,7 +397,7 @@ tr.bad td{background:#9e2b2510}
       <b>Pictures don't survive a text export.</b> Diagrams, treatment algorithms, tables set as images, scans —
       none of it comes through, and the text around it will keep referring to figures that aren't there.
       <div class="row" style="margin-top:11px;align-items:center;gap:16px">
-        <button class="ghost" id="fig-scan">Look for figures</button>
+        <button id="fig-scan">Look for figures</button>
         <span class="hint" id="fig-say" style="max-width:46ch">Takes about as long as reading the file did.</span>
       </div>
       <div id="fig-opts" class="hide" style="margin-top:11px;display:flex;gap:20px;flex-wrap:wrap">
@@ -1919,6 +1919,7 @@ async function scanFigures(){
   }
   S.figuresScanned = true;
   btn.textContent = "Scan again";
+  btn.classList.add("ghost");
   btn.disabled = false;
   return S.pages.filter(p => p.figures).length;
 }
