@@ -5,6 +5,8 @@ cut at the book's own chapter boundaries, or at page ranges you set by hand.
 
 Live at **https://chunkbook.pages.dev**
 
+By Soroush Najjar. MIT licence — use it, change it, ship it; just keep the notice.
+
 Everything runs in the browser. No server, no build step, nothing uploaded.
 
 ```
@@ -206,11 +208,23 @@ whenever you change anything, so reports say which build they came from.
 ## Known limits
 
 - **Scanned pages can't be read.** No text layer, no text. Chunkbook does not do
-  OCR and there is no plan to add it — run the file through an OCR tool first. It
-  can still cut such a PDF into smaller page-range PDFs in the meantime.
+  OCR and there is no plan to add it. When it meets a scanned PDF it hands over a
+  ready-made `ocrmypdf` command, with the right language pack for the book, that
+  adds an invisible text layer to the same file — appearance unchanged, words
+  selectable. Bring the result back and everything here works on it. It can still
+  cut such a PDF into smaller page-range PDFs in the meantime.
 - **Token counts are estimates**, derived from character mix rather than a real
   tokenizer. Expect ±15% and leave headroom.
 - **Heading detection is heuristic** when a book has no built-in contents list.
   It says so plainly when guessing and recommends cutting by hand.
 - **Nothing is saved.** Close the tab and the ranges you typed are gone.
 - **No EPUB yet.** Only PDF, plain text and Markdown.
+
+---
+
+## Licence
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Soroush Najjar.
+
+Built on [pdf.js](https://mozilla.github.io/pdf.js/), [pdf-lib](https://pdf-lib.js.org/) and
+[JSZip](https://stuk.github.io/jszip/), each under its own licence.

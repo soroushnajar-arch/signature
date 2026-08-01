@@ -12,6 +12,8 @@
 <meta property="og:title" content="Split a large PDF book into parts for ChatGPT or Claude">
 <meta property="og:description" content="Cut a 900-page book at its real chapter breaks, into parts that fit a chat window — each labelled with the pages it came from. Free, browser-only, nothing uploaded.">
 <meta property="og:site_name" content="Chunkbook">
+<meta property="article:author" content="Soroush Najjar">
+<meta name="author" content="Soroush Najjar">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Split a large PDF book into parts for ChatGPT or Claude">
 <meta name="twitter:description" content="Cut a 900-page book at its real chapter breaks, into parts that fit a chat window. Free, browser-only, nothing uploaded.">
@@ -98,7 +100,10 @@ h2{font-family:var(--display);font-weight:400;font-size:30px;letter-spacing:-.01
 /* closing */
 .close{text-align:center;padding:74px 0}
 .close p{font-family:var(--display);font-size:24px;color:var(--ink-2);max-width:30ch;margin:0 auto 28px;line-height:1.35}
-footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mono);font-size:12px;color:var(--ink-3);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer b{color:var(--ink-2);font-weight:500}
+footer a{color:var(--ink-3);text-decoration:underline;text-underline-offset:2px}
+footer a:hover{color:var(--lapis)}
 
 @media (max-width:600px){
   .hero{padding:52px 0 16px}
@@ -250,8 +255,8 @@ footer{border-top:1px solid var(--rule);padding:26px 0 56px;font-family:var(--mo
 </div>
 
 <footer>
-  <span>Chunkbook &mdash; one HTML file. View source; there is nothing else to it.</span>
-  <span>Runs entirely in your browser</span>
+  <span>By <b>Soroush Najjar</b> &middot; MIT licence &middot; <a href="https://github.com/soroushnajar-arch/signature">source on GitHub</a></span>
+  <span>One HTML file, running entirely in your browser</span>
 </footer>
 
 </div>
