@@ -258,6 +258,12 @@ tr.bad td{background:#9e2b2510}
 .part .acts{display:flex;gap:4px;align-items:center}
 .part-body{grid-column:1/-1;background:#fff;border:1px solid var(--rule);padding:16px 18px;max-height:300px;overflow:auto;white-space:pre-wrap;font-size:14.5px;line-height:1.7;color:var(--ink-2)}
 
+.figstrip{margin-top:16px;padding-top:14px;border-top:1px solid var(--rule);display:flex;gap:12px;flex-wrap:wrap}
+.fighead{flex-basis:100%;margin:0 0 4px;font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink-3)}
+.figstrip figure{margin:0;width:150px}
+.figstrip img{width:100%;height:auto;display:block;border:1px solid var(--rule);background:#fff;border-radius:2px}
+.figstrip figcaption{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:5px;text-align:center}
 .exportbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:24px;padding-top:20px;border-top:1px solid var(--rule)}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--card);padding:10px 20px;border-radius:2px;font-family:var(--mono);font-size:12px;opacity:0;transition:.2s;pointer-events:none;z-index:50}
 .toast.on{opacity:1;transform:translateX(-50%)}
@@ -399,7 +405,7 @@ tr.bad td{background:#9e2b2510}
           <input type="checkbox" id="fig-mark" checked style="width:auto"> Mark where each figure was
         </label>
         <label style="display:flex;align-items:center;gap:7px;font-size:13px">
-          <input type="checkbox" id="fig-imgs" style="width:auto"> Save those pages as images in the ZIP
+          <input type="checkbox" id="fig-imgs" style="width:auto"> Save every figure page in the big ZIP
           <span class="hint" id="fig-size" style="max-width:26ch"></span>
         </label>
       </div>
@@ -1941,8 +1947,8 @@ function figureCost(){
     `<b>${fmt(n)} pages</b> would be rendered: roughly <b>${fmt(mb)} MB</b> and about ` +
     `<b>${mins} minute${mins>1?"s":""}</b> of work in this tab, on top of the ZIP itself.` +
     (n > 400
-      ? ` That is a great deal for one download, and pasting a chunk into a chat won't carry the images with it anyway. ` +
-        `Build parts for one section at a time, or switch the format to PDF page slices, which keep figures in place with no rendering at all.`
+      ? ` That is a great deal for one download. Each part has its own <b>Figures</b> button for just its pages, ` +
+        `which is usually what you want — or switch the format to PDF page slices, which keep figures in place with no rendering at all.`
       : "");
 }
 
@@ -2335,6 +2341,7 @@ function renderParts(){
         <button class="quiet peek">Preview</button>
         <button class="quiet copy">Copy</button>
         <button class="quiet dl">Save</button>
+        <button class="quiet figs hide">Figures</button>
       </div>`;
     c.querySelector(".t").textContent = p.title;
     const crumb = c.querySelector(".crumb");
@@ -2346,12 +2353,45 @@ function renderParts(){
     if(/cut for size/.test(p.basis||"")) tag.classList.add("size");
     if(/by hand/.test(p.basis||"")) tag.classList.add("hand");
 
-    c.querySelector(".peek").onclick = () => {
+    c.querySelector(".peek").onclick = async () => {
       const ex = c.querySelector(".part-body");
       if(ex){ ex.remove(); return; }
       const b = el("div","part-body");
-      b.textContent = p.text.slice(0,4000) + (p.text.length>4000 ? "\n\n… "+fmt(p.text.length-4000)+" more characters" : "");
-      b.dir = "auto"; c.appendChild(b);
+      const t = el("div");
+      t.style.whiteSpace = "pre-wrap";
+      t.textContent = p.text.slice(0,4000) + (p.text.length>4000 ? "\n\n… "+fmt(p.text.length-4000)+" more characters" : "");
+      t.dir = "auto";
+      b.appendChild(t);
+      c.appendChild(b);
+
+      // show the first few figure pages, so a glance is enough
+      const figs = [];
+      for(let n=p.startPage;n<=p.endPage;n++){
+        const pg = S.pages[n-1];
+        if(pg && pg.figures && !skipped(pg)) figs.push(n);
+      }
+      if(!figs.length) return;
+      const strip = el("div","figstrip");
+      const head = el("p","fighead");
+      head.textContent = `${figs.length} page${figs.length>1?"s":""} with a picture` +
+                         (figs.length>4 ? " — first four shown" : "");
+      strip.appendChild(head);
+      b.appendChild(strip);
+      for(const n of figs.slice(0,4)){
+        try{
+          const blob = await renderPageJpeg(n, 0.85);
+          if(!blob) continue;
+          const fig = el("figure");
+          const img = document.createElement("img");
+          img.src = URL.createObjectURL(blob);
+          img.loading = "lazy";
+          img.onload = () => setTimeout(() => URL.revokeObjectURL(img.src), 60000);
+          const cap = el("figcaption");
+          cap.textContent = "page " + showPage(n);
+          fig.appendChild(img); fig.appendChild(cap);
+          strip.appendChild(fig);
+        }catch(e){ console.warn("preview page "+n, e); }
+      }
     };
     c.querySelector(".copy").onclick = async () => {
       try{ await navigator.clipboard.writeText(fileBody(p,i)); toast("Part "+(i+1)+" copied"); }
@@ -2362,6 +2402,16 @@ function renderParts(){
       if(f === "pdf"){ const bytes = await slicePdf(p); saveBlob(new Blob([bytes],{type:"application/pdf"}), fileSlug(p,i+1)+".pdf"); }
       else saveBlob(new Blob([fileBody(p,i)],{type:"text/plain;charset=utf-8"}), fileSlug(p,i+1)+"."+f);
     };
+
+    // this part's figure pages, on their own
+    const figBtn = c.querySelector(".figs");
+    const nFigs = S.figuresScanned ? figuresIn(p.startPage, p.endPage) : 0;
+    if(nFigs){
+      figBtn.classList.remove("hide");
+      figBtn.textContent = `Figures (${nFigs})`;
+      figBtn.title = `${nFigs} page${nFigs>1?"s":""} in this part carry a picture`;
+      figBtn.onclick = () => savePartFigures(p, i, figBtn);
+    }
     box.appendChild(c);
   });
   if(S.parts.length > CAP){
@@ -2374,6 +2424,50 @@ function renderParts(){
   renderSizeAdvice();
   figureCost();
   drawBand();
+}
+
+/* one part's figure pages, rendered on demand — a handful of pages rather
+   than the whole book, and named so they line up with the text file */
+async function savePartFigures(p, i, btn){
+  const pages = [];
+  for(let n=p.startPage;n<=p.endPage;n++){
+    const pg = S.pages[n-1];
+    if(pg && pg.figures && !skipped(pg)) pages.push(n);
+  }
+  if(!pages.length){ toast("No figure pages in this part"); return; }
+
+  const label = fileSlug(p, i+1);
+  btn.disabled = true;
+  const old = btn.textContent;
+  try{
+    if(pages.length === 1){
+      btn.textContent = "Rendering…";
+      const blob = await renderPageJpeg(pages[0], 1.8);
+      saveBlob(blob, `${label}-p${String(pages[0]).padStart(4,"0")}.jpg`);
+    } else {
+      const zip = new JSZip();
+      for(let k=0;k<pages.length;k++){
+        btn.textContent = `${k+1}/${pages.length}…`;
+        const blob = await renderPageJpeg(pages[k], 1.8);
+        if(blob) zip.file(`p${String(pages[k]).padStart(4,"0")}.jpg`, blob);
+        if(k%4===0) await new Promise(r=>setTimeout(r));
+      }
+      zip.file("_figures.md", [
+        `# Figure pages from part ${i+1}`, "",
+        fullTitle(p), "",
+        `Pages ${showPage(p.startPage)}–${showPage(p.endPage)} of ${S.name}.`,
+        `${pages.length} of them carry a picture; each file is a whole page, so captions and labels stay with the figure.`,
+        "", "| File | Page |", "|---|---|",
+        ...pages.map(n => `| p${String(n).padStart(4,"0")}.jpg | ${showPage(n)} |`)
+      ].join("\n"));
+      btn.textContent = "Packing…";
+      saveBlob(await zip.generateAsync({type:"blob"}), `${label}-figures.zip`);
+    }
+    toast(`${pages.length} figure page${pages.length>1?"s":""} saved`);
+  }catch(e){
+    console.error(e); toast("Rendering failed — see the console");
+  }
+  btn.textContent = old; btn.disabled = false;
 }
 
 /* =========================================================
