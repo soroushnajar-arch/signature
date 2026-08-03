@@ -222,9 +222,13 @@ th{
 td{padding:5px 12px;border-bottom:1px solid #0000000d;vertical-align:middle}
 tr:last-child td{border-bottom:0}
 td input[type=text]{width:100%;border-color:transparent;background:transparent}
+td input.pdfnum{color:var(--ink-3)}
+td input.pdfnum::after{content:"pdf"}
+.numnote{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-left:6px}
 td input[type=text]:hover{border-color:var(--rule);background:#fff}
 td input[type=text]:focus{border-color:var(--lapis);background:#fff}
 td.num{width:110px}
+td select.scale{font-family:var(--mono);font-size:11.5px;padding:4px 6px;color:var(--ink-2)}
 td.act{width:44px;text-align:right}
 tr.bad td{background:#9e2b2510}
 .empty{padding:26px;text-align:center;color:var(--ink-3);background:var(--card);border:1px dashed var(--rule);border-radius:3px}
@@ -503,11 +507,13 @@ tr.bad td{background:#9e2b2510}
   <!-- manual pane -->
   <div id="pane-manual" class="hide">
     <h2>Cut at page ranges you choose</h2>
-    <p class="sub">Name each part, give it a first and last page. Ranges may overlap and needn't cover the whole file.</p>
+    <p class="sub">Name each part, give it a first and last page. Ranges may overlap and needn't cover the whole file.
+    Where a book's printed numbering differs from the PDF's, each row says which one its pages are in — front matter has
+    no printed number, so those rows use PDF pages.</p>
 
     <table id="mtable">
       <thead><tr>
-        <th style="width:38px">#</th><th>Part name</th><th style="width:110px">First page</th><th style="width:110px">Last page</th><th style="width:96px">Est. tokens</th><th style="width:44px"></th>
+        <th style="width:38px">#</th><th>Part name</th><th style="width:110px">First page</th><th style="width:110px">Last page</th><th style="width:88px" id="mhead-scale"></th><th style="width:96px">Est. tokens</th><th style="width:44px"></th>
       </tr></thead>
       <tbody id="mbody"></tbody>
     </table>
@@ -1587,13 +1593,34 @@ function showPage(n){
   const v = n - S.offset;
   return v >= 1 ? String(v) : "pdf " + n;
 }
-function readPage(v){
-  return (S.pageMode === "printed" && S.offset) ? v + S.offset : v;
+/* A book's front matter has no printed number of its own, so a range there
+   has to be entered and shown as a PDF page. Everything else follows the
+   numbering the reader picked. */
+function isPrinted(n){
+  if(S.printedFor) return S.printedFor[n-1] != null;
+  return S.pageMode === "printed" && S.offset && (n - S.offset) >= 1;
 }
-function inputPage(n){
+/* what the reader typed -> a physical page */
+/* what the reader typed, in the scale that row is set to -> a physical page */
+function readPage(v, scale){
+  if(scale === "pdf") return v;
+  if(S.printedFor){
+    const i = S.printedFor.findIndex(x => x === v);
+    return i >= 0 ? i + 1 : v;
+  }
+  if(S.pageMode !== "printed" || !S.offset) return v;
+  return v + S.offset;
+}
+/* a physical page -> what the box should show, in that row's scale */
+function inputPage(n, scale){
+  if(scale === "pdf") return n;
+  if(S.printedFor) return S.printedFor[n-1] == null ? n : S.printedFor[n-1];
   if(S.pageMode !== "printed" || !S.offset) return n;
-  return n - S.offset;
+  const v = n - S.offset;
+  return v >= 1 ? v : n;   // front matter has no printed number; show the physical one
 }
+/* which scale a row should default to, from where the range sits */
+function defaultScale(n){ return isPrinted(n) ? "printed" : "pdf"; }
 
 function setPageMode(m){
   S.pageMode = m;
@@ -2135,7 +2162,7 @@ function splitBlocks(blocks, target, overlapWords){
 $("#m-add").onclick = () => {
   const last = S.manual[S.manual.length-1];
   const from = last ? Math.min(last.to+1, S.pages.length) : 1;
-  S.manual.push({ id:S.mid++, name:"Part "+(S.manual.length+1), from, to: Math.min(from+9, S.pages.length) });
+  S.manual.push({ id:S.mid++, name:"Part "+(S.manual.length+1), from, to: Math.min(from+9, S.pages.length), scale: defaultScale(from) });
   renderManual(); drawBand();
 };
 $("#m-count").oninput = e => { $("#m-n").textContent = e.target.value; };
@@ -2145,7 +2172,7 @@ $("#m-even").onclick = () => {
   S.manual = [];
   for(let i=0;i<n;i++){
     const from = i*per+1; if(from > S.pages.length) break;
-    S.manual.push({ id:S.mid++, name:`Part ${i+1}`, from, to: Math.min((i+1)*per, S.pages.length) });
+    S.manual.push({ id:S.mid++, name:`Part ${i+1}`, from, to: Math.min((i+1)*per, S.pages.length), scale: defaultScale(from) });
   }
   renderManual(); drawBand();
 };
@@ -2156,7 +2183,7 @@ $("#m-gaps").onclick = () => {
   while(p <= S.pages.length){
     if(!covered[p]){
       const start = p; while(p <= S.pages.length && !covered[p]) p++;
-      S.manual.push({ id:S.mid++, name:`Pages ${start}–${p-1}`, from:start, to:p-1 }); added++;
+      S.manual.push({ id:S.mid++, name:`Pages ${showPage(start)}–${showPage(p-1)}`, from:start, to:p-1, scale: defaultScale(start) }); added++;
     } else p++;
   }
   S.manual.sort((a,b)=>a.from-b.from);
@@ -2169,59 +2196,109 @@ $("#m-fromoutline").onclick = () => {
   if(!heads.length){ toast("Nothing in the outline to copy"); return; }
   S.manual = heads.map((h,i) => ({
     id:S.mid++, name:h.title,
-    from:h.page, to:(i+1<heads.length ? heads[i+1].page-1 : S.pages.length)
+    from:h.page, to:(i+1<heads.length ? heads[i+1].page-1 : S.pages.length), scale: defaultScale(h.page)
   })).filter(r => r.to >= r.from);
   renderManual(); drawBand(); selectTab("manual");
   toast(S.manual.length + " ranges copied — edit freely");
 };
 $("#m-clear").onclick = () => { S.manual = []; renderManual(); drawBand(); };
 
+/* redraw one row's numbers without touching the rest of the table */
+function refreshRow(tr, r, i){
+  if(r.scale === "printed" && !isPrinted(r.from)) r.scale = "pdf";
+  const bad = !(r.from>=1 && r.to<=S.pages.length && r.from<=r.to);
+  tr.classList.toggle("bad", bad);
+  const ins = tr.querySelectorAll("input");
+  ins[1].value = inputPage(r.from, r.scale);
+  ins[2].value = inputPage(r.to,   r.scale);
+  const sel = tr.querySelector(".scale");
+  if(sel) sel.value = r.scale;
+  const cells = tr.querySelectorAll("td");
+  cells[5].textContent = bad ? "—" : "≈" + fmt(tokensOfPages(r.from, r.to));
+  manualWarnings();
+  drawBand();
+}
+
+/* rebuild the parts from the rows, without rebuilding the rows */
+function syncManualParts(){
+  if(!S.manual.length){
+    if(S.partsMode === "manual"){ S.parts = []; renderParts(); }
+    return;
+  }
+  S.parts = S.manual
+    .filter(r => r.from<=r.to && r.from>=1 && r.to<=S.pages.length)
+    .map(r => {
+      const text = textOfPages(r.from, r.to);
+      return { title:r.name||"Untitled", path:"", startPage:r.from, endPage:r.to,
+               text, tokens:estTokens(text), basis:"page range you set by hand" };
+    });
+  S.partsMode = "manual";
+  renderParts();
+}
+
 function renderManual(){
   const body = $("#mbody"); body.innerHTML = "";
   $("#mempty").classList.toggle("hide", S.manual.length>0);
   $("#mtable").classList.toggle("hide", S.manual.length===0);
 
+  const dual = !!(S.offset || S.printedFor);
+  $("#mhead-scale").textContent = dual ? "IN" : "";
   S.manual.forEach((r,i) => {
+    if(!r.scale) r.scale = defaultScale(r.from);
+    // a printed scale can't describe front matter — drop back to pdf so the
+    // boxes never show a negative page
+    if(r.scale === "printed" && !isPrinted(r.from)) r.scale = "pdf";
     const bad = !(r.from>=1 && r.to<=S.pages.length && r.from<=r.to);
     const tr = el("tr", bad ? "bad" : "");
     tr.innerHTML = `
       <td class="mono" style="color:var(--gold)">${String(i+1).padStart(2,"0")}</td>
       <td><input type="text" value="" dir="auto"></td>
-      <td class="num"><input type="number" value="${inputPage(r.from)}"></td>
-      <td class="num"><input type="number" value="${inputPage(r.to)}"></td>
+      <td class="num"><input type="number" value="${inputPage(r.from, r.scale)}"></td>
+      <td class="num"><input type="number" value="${inputPage(r.to, r.scale)}"></td>
+      <td class="num">${dual ? `<select class="scale">
+            <option value="printed"${r.scale!=="pdf"?" selected":""}>printed</option>
+            <option value="pdf"${r.scale==="pdf"?" selected":""}>pdf</option>
+          </select>` : ""}</td>
       <td class="mono" style="color:var(--ink-3)">${bad?"—":"≈"+fmt(tokensOfPages(r.from,r.to))}</td>
       <td class="act"><button class="danger" title="Remove">×</button></td>`;
     const [nameI, fromI, toI] = tr.querySelectorAll("input");
     nameI.value = r.name;
-    nameI.oninput  = e => { r.name = e.target.value; };
-    nameI.onchange = () => renderManual();
-    fromI.onchange = e => { r.from = readPage(+e.target.value||1); renderManual(); drawBand(); };
-    toI.onchange   = e => { r.to   = readPage(+e.target.value||1); renderManual(); drawBand(); };
+    nameI.oninput  = e => { r.name = e.target.value; syncManualParts(); };
+    // Update the row in place. Rebuilding the whole table here would destroy
+    // the field the reader is still typing in, and the row after it.
+    const setPage = (which, raw) => {
+      const v = +raw || 1;
+      let n = readPage(v, r.scale);
+      // typing a front-matter number into a printed row would land off the book
+      if(r.scale !== "pdf" && (n < 1 || n > S.pages.length)) { r.scale = "pdf"; n = v; }
+      r[which] = Math.max(1, Math.min(S.pages.length, n));
+      refreshRow(tr, r, i);
+      syncManualParts();
+    };
+    fromI.onchange = e => setPage("from", e.target.value);
+    toI.onchange   = e => setPage("to",   e.target.value);
+    const scaleSel = tr.querySelector(".scale");
+    if(scaleSel) scaleSel.onchange = e => {
+      // the pages stay put; only the numbering they are typed in changes
+      r.scale = e.target.value;
+      refreshRow(tr, r, i);
+    };
     tr.querySelector("button").onclick = () => { S.manual = S.manual.filter(x=>x.id!==r.id); renderManual(); drawBand(); };
     body.appendChild(tr);
   });
 
-  // validation summary
+  manualWarnings();
+  syncManualParts();
+}
+
+function manualWarnings(){
   const warn = $("#mwarn"); const msgs = [];
   const bad = S.manual.filter(r => !(r.from>=1 && r.to<=S.pages.length && r.from<=r.to));
   if(bad.length) msgs.push(`<b>${bad.length} range${bad.length>1?"s are":" is"} out of bounds.</b> Pages run from ${showPage(1)} to ${showPage(S.pages.length)}.`);
   const big = S.manual.filter(r => r.from<=r.to && tokensOfPages(r.from,r.to) > +$("#o-max").value);
   if(big.length) msgs.push(`${big.length} range${big.length>1?"s exceed":" exceeds"} the hard maximum of ${fmt(+$("#o-max").value)} tokens.`);
   warn.innerHTML = msgs.join("<br>");
-  warn.classList.toggle("hide", !msgs.length);
   warn.className = "notice" + (bad.length ? "" : " info") + (msgs.length ? "" : " hide");
-
-  if(S.manual.length){
-    S.parts = S.manual.filter(r => r.from<=r.to && r.from>=1 && r.to<=S.pages.length).map(r => {
-      const text = textOfPages(r.from, r.to);
-      return { title:r.name||"Untitled", path:"", startPage:r.from, endPage:r.to, text, tokens:estTokens(text),
-               basis:"page range you set by hand" };
-    });
-    S.partsMode = "manual";
-    renderParts();
-  } else if(S.partsMode === "manual"){
-    S.parts = []; renderParts();
-  }
 }
 
 /* =========================================================
