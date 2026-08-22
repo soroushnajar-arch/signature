@@ -203,6 +203,7 @@ label.field{display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:va
 
 /* ---------- outline tree ---------- */
 .tree{background:var(--card);border:1px solid var(--rule);border-radius:3px;max-height:380px;overflow:auto}
+.tmore{padding:12px 14px;text-align:center;border-top:1px solid var(--rule);background:var(--card-2)}
 .tnode{display:flex;align-items:center;gap:10px;padding:6px 14px;border-bottom:1px solid #0000000d}
 .tnode:last-child{border-bottom:0}
 .tnode:hover{background:var(--card-2)}
@@ -827,17 +828,26 @@ function linesFromItems(items, pageWidth){
     const rtl = /[\u0590-\u08FF]/.test(r.items.map(i=>i.str).join(""));
     r.items.sort((a,b)=> rtl ? b.transform[4]-a.transform[4] : a.transform[4]-b.transform[4]);
     let text = "";
-    let prevEnd = null;
+    let prevEnd = null, prevFont = null;
     for(const it of r.items){
       const x = it.transform[4], w = it.width || 0;
       const sz = it.height || Math.abs(it.transform[3]) || medH;
       if(prevEnd !== null){
         const gap = rtl ? (prevEnd - (x + w)) : (x - prevEnd);
-        if(gap > sz*0.22 && !/\s$/.test(text)) text += " ";
+        // A space is often not a character at all — it is a gap, and a font
+        // change mid-sentence leaves a small one. 0.22 em missed those, which
+        // is how "the cover of Harrison's has" became "ofHarrison'shas".
+        const needsSpace = gap > sz*0.12 ||
+          (gap > 0 && it.fontName && it.fontName !== prevFont);
+        if(needsSpace && !/\s$/.test(text) && !/^\s/.test(it.str)) text += " ";
       }
+      prevFont = it.fontName;
       text += it.str;
       prevEnd = rtl ? x : x + w;
     }
+    // No blanket "lowercase then capital means a lost space" repair here:
+    // it turns McGraw into Mc Graw and NaCl into Na Cl, which is worse than
+    // the problem. The positional test above is the honest fix.
     const size = Math.max(...r.items.map(i => i.height || Math.abs(i.transform[3]) || medH));
     const bold = r.items.some(i => /bold|black|heavy|semib/i.test(i.fontName||""));
     const xs = r.items.map(i=>i.transform[4]);
@@ -1330,6 +1340,7 @@ function afterLoad(){
     $("#fig-imgs").onchange = () => figureCost();
   }
 
+  S.outlineShown = 400; S.partsShown = 250;
   renderTree();
   renderOutlineWarning();
   updateSizeHint();
@@ -1806,7 +1817,8 @@ function renderTree(){
     $("#treebox").classList.add("hide"); $("#notree").classList.remove("hide"); return;
   }
   $("#treebox").classList.remove("hide"); $("#notree").classList.add("hide");
-  S.outline.slice(0,400).forEach(h => {
+  const shownOutline = S.outlineShown || 400;
+  S.outline.slice(0, shownOutline).forEach(h => {
     const n = el("div","tnode h"+Math.min(h.level,3));
     n.innerHTML = `<span class="lv">L${h.level}</span>
       <span class="ti" style="padding-left:${(h.level-1)*16}px"></span>
@@ -1814,6 +1826,20 @@ function renderTree(){
     n.querySelector(".ti").textContent = h.title;
     box.appendChild(n);
   });
+
+  if(S.outline.length > shownOutline){
+    const more = el("div","tmore");
+    const left = S.outline.length - shownOutline;
+    const btn = el("button","ghost");
+    btn.textContent = `Show ${Math.min(400, left)} more of ${fmt(left)}`;
+    btn.onclick = () => {
+      S.outlineShown = shownOutline + 400;
+      renderTree();
+      box.scrollTop = box.scrollHeight;
+    };
+    more.appendChild(btn);
+    box.appendChild(more);
+  }
 }
 
 /* =========================================================
@@ -1883,7 +1909,7 @@ function buildFromOutline(quiet){
   if(doMerge) out = mergeSmall(out, opt);
   if(!out.length){ toast("Nothing left to cut"); return; }
 
-  S.parts = out; S.partsMode = "outline";
+  S.parts = out; S.partsMode = "outline"; S.partsShown = 250;
   renderParts(); drawBand();
   if(quiet !== true) document.querySelector("#partsec").scrollIntoView({behavior:"smooth", block:"start"});
 }
@@ -2398,7 +2424,7 @@ function renderParts(){
       ? ` · <b>${fmt(S.parts.length - bySize)}</b> cut at a heading, <b>${fmt(bySize)}</b> cut for size`
       : ` · all cut at page ranges you set`);
 
-  const CAP = 250;
+  const CAP = S.partsShown || 250;
   const shown = S.parts.slice(0, CAP);
   shown.forEach((p,i) => {
     const over = p.tokens > hardMax, tiny = p.tokens < Math.min(target*0.25, 3000);
@@ -2490,10 +2516,25 @@ function renderParts(){
     box.appendChild(c);
   });
   if(S.parts.length > CAP){
+    const left = S.parts.length - CAP;
     const more = el("div","empty");
     more.style.marginTop = "4px";
-    more.innerHTML = `Showing the first ${fmt(CAP)} of ${fmt(S.parts.length)} parts, to keep this page quick.<br>` +
-      `<span style="color:var(--ink-3);font-size:13px">All ${fmt(S.parts.length)} are included when you download.</span>`;
+    const line = el("p");
+    line.style.margin = "0 0 12px";
+    line.innerHTML = `Showing ${fmt(CAP)} of ${fmt(S.parts.length)} parts, to keep this page quick. ` +
+      `<span style="color:var(--ink-3)">All ${fmt(S.parts.length)} go into the download either way.</span>`;
+    more.appendChild(line);
+    const btn = el("button");
+    btn.textContent = `Show ${fmt(Math.min(250, left))} more`;
+    btn.onclick = () => { S.partsShown = CAP + 250; renderParts(); };
+    more.appendChild(btn);
+    if(left > 250){
+      const all = el("button","ghost");
+      all.style.marginLeft = "10px";
+      all.textContent = `Show all ${fmt(S.parts.length)}`;
+      all.onclick = () => { S.partsShown = S.parts.length; renderParts(); };
+      more.appendChild(all);
+    }
     box.appendChild(more);
   }
   renderSizeAdvice();
