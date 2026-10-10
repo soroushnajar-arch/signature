@@ -548,6 +548,10 @@ tr.bad td{background:#9e2b2510}
       <span class="hint">PDF slices keep the original pages, images and all.</span>
     </label>
     <label class="field">
+      <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="x-pages" checked style="width:auto"> Mark each page in the text</span>
+      <span class="hint">A quiet <code>[p. 1514]</code> where every page starts, so anything can be cited.</span>
+    </label>
+    <label class="field">
       <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="x-front" checked style="width:auto"> Write the label on each part</span>
       <span class="hint">Which part it is, which pages, what came before.</span>
     </label>
@@ -621,7 +625,7 @@ const FEEDBACK = {
   issues: "https://github.com/soroushnajar-arch/signature/issues/new"
 };
 
-const VERSION = "1.1";   // bump this when you change anything
+const VERSION = "1.2";   // bump this when you change anything
 
 /* =========================================================
    ▲▲▲  END OF SETTINGS — nothing below needs editing  ▲▲▲
@@ -782,18 +786,21 @@ async function loadPdf(file){
   }
 
   pageLines.forEach(lines => {
-    lines.headFoot = [lines[0], lines[1], lines[lines.length-1], lines[lines.length-2]]
-      .filter(Boolean).map(l => l.text);
+    lines.headFoot = edgeLines(lines).map(l => l.text);
   });
   const heads4 = pageLines.map(l => l.headFoot);
 
   stripRunningLines(pageLines);
+  S.vocab = buildVocab(pageLines);
 
   S.pages = pageLines.map((lines,i)=>{
     const t = joinLines(lines);
     return { n:i+1, text:t, chars:t.length, tokens:estTokens(t), lines, headFoot: heads4[i] };
   });
   S.hasText = S.pages.filter(p=>p.chars>40).length > S.pages.length*0.35;
+
+  // the file's own printed numbering, when it has one (i, ii, iii, 1, 2, 3…)
+  try{ S.pageLabels = await pdf.getPageLabels(); }catch(e){ S.pageLabels = null; }
 
   // outline: prefer real bookmarks
   progress("Reading the outline…", 1);
@@ -808,23 +815,99 @@ async function loadPdf(file){
 }
 
 /* ---- turn pdf.js text items into lines ---- */
-function linesFromItems(items, pageWidth){
-  const good = items.filter(i => i.str && i.str.trim().length);
-  if(!good.length) return [];
-  const heights = good.map(i => i.height || Math.abs(i.transform[3]) || 10).sort((a,b)=>a-b);
-  const medH = heights[Math.floor(heights.length/2)] || 10;
-  const tol = Math.max(1.6, medH*0.55);
+/* Where is the gutter between columns, if there is one?
+   Counted per text row, so a full-width heading crossing the middle does not
+   hide the gutter underneath it. */
+function findGutter(items, pageWidth){
+  if(!items.length || !pageWidth) return null;
+  const BINS = 60, binW = pageWidth / BINS;
+  const rows = new Map();
+  items.forEach(it => {
+    const key = Math.round(it.transform[5] / 6);
+    if(!rows.has(key)) rows.set(key, []);
+    rows.get(key).push(it);
+  });
+  const total = rows.size;
+  if(total < 10) return null;
 
-  const sorted = good.slice().sort((a,b)=> b.transform[5]-a.transform[5]);
+  const cover = new Array(BINS).fill(0);
+  rows.forEach(list => {
+    const seen = new Array(BINS).fill(false);
+    list.forEach(it => {
+      const a = Math.max(0, Math.floor(it.transform[4] / binW));
+      const b = Math.min(BINS-1, Math.floor((it.transform[4] + (it.width||0)) / binW));
+      for(let i=a;i<=b;i++) seen[i] = true;
+    });
+    seen.forEach((v,i) => { if(v) cover[i]++; });
+  });
+
+  const lo = Math.floor(BINS*0.34), hi = Math.ceil(BINS*0.66);
+  let best = -1, bestVal = Infinity;
+  for(let i=lo;i<=hi;i++) if(cover[i] < bestVal){ bestVal = cover[i]; best = i; }
+  if(best < 0 || bestVal > total*0.12) return null;
+
+  // a gutter is only a gutter if both sides carry real text
+  const leftMax  = Math.max(...cover.slice(0, best));
+  const rightMax = Math.max(...cover.slice(best+1));
+  if(leftMax < total*0.35 || rightMax < total*0.35) return null;
+  return (best + 0.5) * binW;
+}
+
+/* Rows of a table that runs across both columns. A row qualifies when it has
+   cells on both sides of the gutter, a wide gap between cells on one side,
+   and no item long enough to be a line of running text. Two such rows in a
+   row make a table; one on its own is left alone. */
+function fullWidthTableItems(items, gutter, medH){
+  const marked = new Set();
+  const tol = Math.max(1.6, medH*0.55);
+  const sorted = items.slice().sort((a,b)=> b.transform[5]-a.transform[5]);
+  const rows = [];
+  for(const it of sorted){
+    const last = rows[rows.length-1];
+    if(last && Math.abs(last.y - it.transform[5]) <= tol) last.items.push(it);
+    else rows.push({ y: it.transform[5], items:[it] });
+  }
+  const minX = Math.min(...items.map(i => i.transform[4]));
+  const colW = Math.max(60, gutter - minX);
+
+  const isTableRow = r => {
+    const its = r.items.slice().sort((a,b)=> a.transform[4]-b.transform[4]);
+    const L = its.filter(i => i.transform[4] + (i.width||0) <= gutter + 1);
+    const R = its.filter(i => i.transform[4] >= gutter - 1);
+    if(!L.length || !R.length) return false;
+    if(its.some(i => (i.width||0) > colW*0.6)) return false;
+    const wideGap = side => side.some((it,k) => k > 0 &&
+      it.transform[4] - (side[k-1].transform[4] + (side[k-1].width||0)) > medH*2.2);
+    // (not "many items": some PDFs place every word as its own item)
+    return wideGap(L) || wideGap(R);
+  };
+
+  let run = [];
+  const flush = () => {
+    if(run.length >= 2) run.forEach(r => r.items.forEach(i => marked.add(i)));
+    run = [];
+  };
+  rows.forEach(r => { if(isTableRow(r)) run.push(r); else flush(); });
+  flush();
+  return marked;
+}
+
+/* turn a set of items into lines, within one column */
+function buildLines(items, pageWidth, medH){
+  if(!items.length) return [];
+  const tol = Math.max(1.6, medH*0.55);
+  const sorted = items.slice().sort((a,b)=> b.transform[5]-a.transform[5]);
   const rows = [];
   for(const it of sorted){
     const y = it.transform[5];
     const last = rows[rows.length-1];
-    if(last && Math.abs(last.y - y) <= tol){ last.items.push(it); last.y = (last.y*last.items.length + y)/(last.items.length+1); }
-    else rows.push({ y, items:[it] });
+    if(last && Math.abs(last.y - y) <= tol){
+      last.items.push(it);
+      last.sum += y; last.y = last.sum / last.items.length;
+    } else rows.push({ y, sum:y, items:[it] });
   }
 
-  return rows.map(r => {
+  const lines = rows.map(r => {
     const rtl = /[\u0590-\u08FF]/.test(r.items.map(i=>i.str).join(""));
     r.items.sort((a,b)=> rtl ? b.transform[4]-a.transform[4] : a.transform[4]-b.transform[4]);
     let text = "";
@@ -834,47 +917,158 @@ function linesFromItems(items, pageWidth){
       const sz = it.height || Math.abs(it.transform[3]) || medH;
       if(prevEnd !== null){
         const gap = rtl ? (prevEnd - (x + w)) : (x - prevEnd);
-        // A space is often not a character at all — it is a gap, and a font
-        // change mid-sentence leaves a small one. 0.22 em missed those, which
-        // is how "the cover of Harrison's has" became "ofHarrison'shas".
-        const needsSpace = gap > sz*0.12 ||
-          (gap > 0 && it.fontName && it.fontName !== prevFont);
-        if(needsSpace && !/\s$/.test(text) && !/^\s/.test(it.str)) text += " ";
+        // A wide gap inside one line is a column of a table, not a space.
+        // Marking it keeps "Normal saline | 20 mL/kg | IV" a row a model can read.
+        if(gap > sz*2.2){ text = text.replace(/\s+$/,"") + " | "; }
+        else {
+          // A space is often not a character at all — it is a gap, and a font
+          // change mid-sentence leaves a small one.
+          const needsSpace = gap > sz*0.12 ||
+            (gap > 0 && it.fontName && it.fontName !== prevFont);
+          if(needsSpace && !/\s$/.test(text) && !/^\s/.test(it.str)) text += " ";
+        }
       }
       prevFont = it.fontName;
       text += it.str;
       prevEnd = rtl ? x : x + w;
     }
-    // No blanket "lowercase then capital means a lost space" repair here:
-    // it turns McGraw into Mc Graw and NaCl into Na Cl, which is worse than
-    // the problem. The positional test above is the honest fix.
     const size = Math.max(...r.items.map(i => i.height || Math.abs(i.transform[3]) || medH));
     const bold = r.items.some(i => /bold|black|heavy|semib/i.test(i.fontName||""));
     const xs = r.items.map(i=>i.transform[4]);
     const right = Math.max(...r.items.map(i => i.transform[4] + (i.width||0)));
-    return { text: text.replace(/\s+/g," ").trim(), size, bold, left: Math.min(...xs), right, width: pageWidth||600 };
+    return { text: text.replace(/\s+/g," ").trim(), size, bold,
+             left: Math.min(...xs), right, y: r.y, width: pageWidth||600 };
   }).filter(l => l.text.length);
+
+  // paragraph breaks are judged against this column's own right edge
+  if(lines.length){
+    const rights = lines.map(l=>l.right).sort((a,b)=>a-b);
+    const colRight = rights[Math.floor(rights.length*0.75)] || 0;
+    const lefts = lines.map(l=>l.left).sort((a,b)=>a-b);
+    const colWidth = Math.max(40, colRight - lefts[0]);
+    lines.forEach(l => { l.colRight = colRight; l.colWidth = colWidth; });
+  }
+  return lines;
+}
+
+/* A two-column page read row by row interleaves the columns — the left
+   column's sentence runs straight into the right column's. Split at the
+   gutter and read each column down, with full-width lines as separators. */
+function linesFromItems(items, pageWidth){
+  const good = items.filter(i => i.str && i.str.trim().length);
+  if(!good.length) return [];
+  const heights = good.map(i => i.height || Math.abs(i.transform[3]) || 10).sort((a,b)=>a-b);
+  const medH = heights[Math.floor(heights.length/2)] || 10;
+
+  const gutter = findGutter(good, pageWidth);
+  if(gutter === null) return buildLines(good, pageWidth, medH);
+
+  // A table set across both columns has cells on each side of the gutter.
+  // Split at the gutter, its right-hand cells would be read after the whole
+  // left column — the row torn in half. Find those rows and keep them whole.
+  const tableItems = fullWidthTableItems(good, gutter, medH);
+
+  const full = [], left = [], right = [];
+  good.forEach(it => {
+    const x = it.transform[4], w = it.width || 0;
+    if(tableItems.has(it)) full.push(it);
+    else if(x < gutter - 1 && x + w > gutter + 1) full.push(it);
+    else if(x + w <= gutter) left.push(it);
+    else right.push(it);
+  });
+
+  const fullLines  = buildLines(full,  pageWidth, medH).sort((a,b)=> b.y - a.y);
+  const leftLines  = buildLines(left,  gutter, medH);
+  const rightLines = buildLines(right, pageWidth - gutter, medH);
+
+  const out = [];
+  let top = Infinity;
+  const band = (lines, hi, lo) => lines.filter(l => l.y < hi && l.y > lo).sort((a,b)=> b.y - a.y);
+  for(const sep of fullLines){
+    band(leftLines,  top, sep.y).forEach(l => out.push(l));
+    band(rightLines, top, sep.y).forEach(l => out.push(l));
+    out.push(sep);
+    top = sep.y;
+  }
+  band(leftLines,  top, -Infinity).forEach(l => out.push(l));
+  band(rightLines, top, -Infinity).forEach(l => out.push(l));
+  return out;
+}
+
+/* The lines nearest the top and bottom edges of the page, by position.
+   Not lines[0] and lines[-1]: on a two-column page the reading order puts
+   the right-hand half of the running head after the whole left column. */
+function edgeLines(lines){
+  if(!lines.length) return [];
+  const byY = lines.filter(l => l.y != null).sort((a,b) => b.y - a.y);
+  if(!byY.length) return [lines[0], lines[1], lines[lines.length-1], lines[lines.length-2]].filter(Boolean);
+  const top = byY[0].y, bot = byY[byY.length-1].y;
+  const band = Math.max(4, (byY[0].size || 10) * 0.8);
+  // everything sitting on the top-most and bottom-most baselines, then one more
+  const out = byY.filter(l => top - l.y <= band || l.y - bot <= band);
+  [byY[1], byY[byY.length-2]].forEach(l => { if(l && !out.includes(l)) out.push(l); });
+  return out;
 }
 
 /* ---- drop repeated running heads / feet / page numbers ---- */
 function stripRunningLines(pageLines){
   if(pageLines.length < 6) return;
   const norm = s => s.toLowerCase().replace(/\d+/g,"#").replace(/[^\p{L}#]+/gu," ").trim();
+  // Running heads and folios are set at or below the body size. Anything
+  // larger is a heading — "Chapter 3" or a book's title on its cover — and
+  // must survive even though it, too, sits at the top of a page.
+  const freq = new Map();
+  pageLines.forEach(lines => lines.forEach(l => {
+    const k = Math.round(l.size*2)/2; freq.set(k, (freq.get(k)||0) + l.text.length);
+  }));
+  const body = [...freq.entries()].sort((a,b)=>b[1]-a[1])[0]?.[0] || 10;
+  const small = l => l.size <= body * 1.08;
   const tally = new Map();
   pageLines.forEach(lines => {
-    const cand = [lines[0], lines[1], lines[lines.length-1], lines[lines.length-2]].filter(Boolean);
-    new Set(cand.map(l=>norm(l.text))).forEach(k => { if(k.length<90) tally.set(k,(tally.get(k)||0)+1); });
+    new Set(edgeLines(lines).filter(small).map(l=>norm(l.text))).forEach(k => { if(k.length<90) tally.set(k,(tally.get(k)||0)+1); });
   });
-  const thresh = pageLines.length * 0.35;
-  const kill = new Set([...tally].filter(([k,c]) => c>thresh && k.length<90).map(([k])=>k));
-  if(!kill.size) return;
+  // Anything that recurs at a page edge is furniture, not text. Not just the
+  // book title on every other page: a chapter's own running title shows on
+  // every page of that chapter only, so it never comes near a share of the book.
+  const kill = new Set([...tally].filter(([k,c]) => c >= 3 && k.length < 90 && /\p{L}|#/u.test(k)).map(([k])=>k));
   pageLines.forEach(lines => {
-    for(const idx of [0,1,lines.length-1,lines.length-2]){
-      const l = lines[idx];
-      if(l && (kill.has(norm(l.text)) || /^[#\s\d.\u2014-]{1,12}$/.test(l.text))) l._drop = true;
+    for(const l of edgeLines(lines)){
+      if(!small(l)) continue;
+      // a repeated head or foot, or a bare page number at an edge
+      if(kill.has(norm(l.text)) || /^[#\s\d.|\u2014-]{1,12}$/.test(l.text) || /^[ivxlc]{1,7}$/i.test(l.text.trim()))
+        l._drop = true;
     }
     for(let i=lines.length-1;i>=0;i--) if(lines[i]._drop) lines.splice(i,1);
   });
+}
+
+/* ---- the book's own vocabulary, for deciding line-end hyphens ----
+   "treat-/ment" is a soft break and should read "treatment"; "beta-/blocker"
+   is a real compound and should keep its hyphen. The line alone can't say
+   which. The rest of the book usually can: whichever form appears whole,
+   somewhere a line break didn't interfere, is the right one. */
+function buildVocab(pageLines){
+  const v = new Map();
+  pageLines.forEach(lines => lines.forEach(l => {
+    const words = l.text.match(/\p{L}+(?:-\p{L}+)*/gu) || [];
+    // the last word of a hyphen-ended line is a fragment, not a word
+    if(/\p{L}-$/u.test(l.text)) words.pop();
+    words.forEach(w => { w = w.toLowerCase(); v.set(w, (v.get(w)||0) + 1); });
+  }));
+  return v;
+}
+
+/* join a hyphen-ended line to the next one, as the book itself spells it */
+function joinHyphen(buf, next){
+  const m = buf.match(/(\p{L}+)-$/u), n = next.match(/^(\p{L}+)/u);
+  if(!m || !n) return buf + next;
+  const vocab = S.vocab || new Map();
+  const hy = (m[1] + "-" + n[1]).toLowerCase(), whole = (m[1] + n[1]).toLowerCase();
+  if(vocab.get(hy) && !(vocab.get(whole) > vocab.get(hy))) return buf + next;     // a real compound
+  if(vocab.get(whole)) return buf.slice(0, -1) + next;                            // a soft break
+  // Unknown either way: keep the hyphen. "treat-ment" still reads; a real
+  // hyphen dropped turns "beta-blocker" into "betablocker" and "non-ST" into "nonST".
+  return buf + next;
 }
 
 /* ---- lines -> flowing paragraphs ---- */
@@ -885,12 +1079,22 @@ function joinLines(lines){
   let out = "", buf = "";
   for(let i=0;i<lines.length;i++){
     const l = lines[i];
-    buf = buf ? buf + " " + l.text : l.text;
-    const short = l.right < fullRight - (l.width*0.10);
-    const ends = /[.!?:;»”"')\]]$/.test(l.text);
-    const nextIsHead = lines[i+1] && lines[i+1].size > l.size*1.12;
-    if(short || (ends && short) || nextIsHead || i === lines.length-1){
-      out += buf.replace(/(\p{L})-\s(\p{L})/gu,"$1$2") + "\n\n"; buf = "";
+    if(!buf) buf = l.text;
+    else if(/\p{L}-$/u.test(buf) && /^\p{L}/u.test(l.text)) buf = joinHyphen(buf, l.text);
+    else buf = buf + " " + l.text;
+    const edge = l.colRight != null ? l.colRight : fullRight;
+    const span = l.colWidth != null ? l.colWidth : l.width;
+    const short = l.right < edge - (span*0.12);
+    // a change of type size either way ends a paragraph: a heading starting,
+    // or a heading ending and the body text beginning under it
+    const nx = lines[i+1];
+    const nextIsHead = nx && (nx.size > l.size*1.12 || nx.size*1.12 < l.size);
+    // a line that ends mid-word is never the end of a paragraph, however short
+    const midWord = /\p{L}-$/u.test(l.text) && lines[i+1];
+    // table rows stand alone
+    const isRow = / \| /.test(l.text) || (lines[i+1] && / \| /.test(lines[i+1].text));
+    if(!midWord && (short || nextIsHead || isRow || i === lines.length-1)){
+      out += buf + "\n\n"; buf = "";
     }
   }
   if(buf) out += buf + "\n\n";
@@ -1038,30 +1242,55 @@ function parseDoc(text, mime){
   return d;
 }
 
-/* an XHTML file becomes a flat run of blocks, remembering where anchors land */
-const BLOCK = new Set(["p","h1","h2","h3","h4","h5","h6","li","blockquote",
-                       "pre","figcaption","dd","dt","td","caption"]);
+/* an XHTML file becomes a flat run of blocks, remembering where anchors land.
+   Text is gathered the way a browser lays it out: loose text and inline
+   elements (b, i, span, a…) run together into one block until a block-level
+   element starts. Reading only the elements would keep "inadequate perfusion"
+   and lose the plain words either side of it. */
+const INLINE = new Set(["a","abbr","b","bdi","bdo","cite","code","data","dfn","em","i","kbd","mark",
+  "q","rp","rt","ruby","s","samp","small","span","strong","sub","sup","time","u","var","wbr",
+  "font","big","tt","strike","del","ins","img","math","svg","label"]);
+const HEADING = /^h[1-6]$/;
 function blocksFromDoc(doc, file, anchors, offset){
   const out = [];
   const body = doc.body || doc.documentElement;
   if(!body) return out;
-  (function walk(node){
-    for(const el of node.children){
-      const tag = (el.tagName||"").toLowerCase();
-      if(el.id) anchors[file + "#" + el.id] = offset + out.length;
-      if(tag === "script" || tag === "style") continue;
-      if(BLOCK.has(tag)){
-        const t = (el.textContent||"").replace(/\s+/g," ").trim();
-        if(t) out.push({ text:t, tag });
+  let pending = "", pendingTag = "p";
+
+  const flush = () => {
+    const t = pending.replace(/\s+/g," ").trim();
+    if(t) out.push({ text:t, tag:pendingTag });
+    pending = "";
+  };
+  const mark = el => { if(el.id) anchors[file + "#" + el.id] = offset + out.length; };
+
+  (function walk(node, tag){
+    for(const ch of node.childNodes){
+      if(ch.nodeType === 3){ pending += ch.nodeValue; if(!pending.trim()) continue; pendingTag = tag; continue; }
+      if(ch.nodeType !== 1) continue;
+      const t = (ch.localName || ch.tagName || "").toLowerCase();
+      if(t === "script" || t === "style" || t === "head") continue;
+      if(t === "br"){ pending += " "; continue; }
+      if(INLINE.has(t)){
+        if(ch.id){ if(!pending.trim()) mark(ch); else anchors[file + "#" + ch.id] = offset + out.length; }
+        ch.querySelectorAll && ch.querySelectorAll("[id]").forEach(d => anchors[file + "#" + d.id] = offset + out.length);
+        pending += ch.textContent; if(pending.trim()) pendingTag = tag;
         continue;
       }
-      if(el.children.length) walk(el);
-      else {
-        const t = (el.textContent||"").replace(/\s+/g," ").trim();
-        if(t) out.push({ text:t, tag:"p" });
+      // a block-level element ends whatever ran before it
+      flush();
+      mark(ch);
+      if(t === "tr"){
+        ch.querySelectorAll("[id]").forEach(d => anchors[file + "#" + d.id] = offset + out.length);
+        const cells = [...ch.children].map(c => c.textContent.replace(/\s+/g," ").trim()).filter(Boolean);
+        if(cells.length) out.push({ text: cells.join(" | "), tag:"tr" });
+        continue;
       }
+      walk(ch, HEADING.test(t) ? t : (t === "li" || t === "p" ? t : tag));
+      flush();
     }
-  })(body);
+  })(body, "p");
+  flush();
   if(anchors[file] === undefined) anchors[file] = offset;
   return out;
 }
@@ -1161,24 +1390,6 @@ async function loadEpub(file){
   }
   if(!blocks.length) throw new Error("no text could be read out of this EPUB");
 
-  // ---- group into units of a readable size, so ranges stay usable ----
-  const TARGET = 2200;
-  const pages = []; const pageOfBlock = new Array(blocks.length);
-  let cur = [], len = 0;
-  blocks.forEach((b,i) => {
-    if(len && len + b.text.length > TARGET){ pages.push(cur); cur = []; len = 0; }
-    pageOfBlock[i] = pages.length;
-    cur.push(b); len += b.text.length + 2;
-  });
-  if(cur.length) pages.push(cur);
-
-  S.pages = pages.map((blks,i) => {
-    const t = blks.map(b => b.text).join("\n\n");
-    return { n:i+1, text:t, chars:t.length, tokens:estTokens(t) };
-  });
-  S.hasText = true;
-  S.unit = "section";
-
   // ---- the contents list ----
   progress("Reading the contents…", .88);
   let toc = [], pageList = [];
@@ -1205,11 +1416,39 @@ async function loadEpub(file){
     }
   }
 
-  const toPage = href => {
-    if(!href) return null;
+  const blockOf = href => {
+    if(!href) return undefined;
     let b = anchors[href];
     if(b === undefined) b = anchors[href.split("#")[0]];
-    return b === undefined ? null : pageOfBlock[b] + 1;
+    return b;
+  };
+
+  // ---- group into sections of about a page, never straddling a chapter ----
+  // A section is what ranges and labels count in, so every place the
+  // contents list points at has to begin one. Otherwise three short chapters
+  // share a section and become indistinguishable.
+  const starts = new Set(Object.keys(anchors).filter(k => !k.includes("#")).map(k => anchors[k]));
+  toc.forEach(t => { const b = blockOf(t.href); if(b !== undefined) starts.add(b); });
+  const TARGET = 2200;
+  const pages = []; const pageOfBlock = new Array(blocks.length);
+  let cur = [], len = 0;
+  blocks.forEach((b,i) => {
+    if(cur.length && (starts.has(i) || len + b.text.length > TARGET)){ pages.push(cur); cur = []; len = 0; }
+    pageOfBlock[i] = pages.length;
+    cur.push(b); len += b.text.length + 2;
+  });
+  if(cur.length) pages.push(cur);
+
+  S.pages = pages.map((blks,i) => {
+    const t = blks.map(b => b.text).join("\n\n");
+    return { n:i+1, text:t, chars:t.length, tokens:estTokens(t) };
+  });
+  S.hasText = true;
+  S.unit = "section";
+
+  const toPage = href => {
+    const b = blockOf(href);
+    return b === undefined || b >= blocks.length ? null : pageOfBlock[b] + 1;
   };
 
   S.outline = toc.map(t => ({ title:t.title, level:t.level, page:toPage(t.href) }))
@@ -1252,7 +1491,9 @@ async function loadEpub(file){
    after load
 ========================================================= */
 function afterLoad(){
+  S.tab = "outline";
   S.skipToc = true;
+  S.markPages = $("#x-pages").checked;
   S.offset = 0; S.pageMode = "pdf";
 
   if(S.ext === "pdf" && !S.printedFor){
@@ -1263,7 +1504,9 @@ function afterLoad(){
       $("#off-val").value = d.offset;
       $("#off-say").textContent =
         ` Printed page 1 sits at PDF page ${d.offset+1}, a difference of ${d.offset}` +
-        ` (read off the running heads on ${Math.round(d.confidence*100)}% of pages).`;
+        (d.source === "labels"
+          ? ` (from the page numbers the PDF itself carries).`
+          : ` (read off the running heads on ${Math.round(d.confidence*100)}% of pages).`);
       $("#pm-printed").onclick = () => setPageMode("printed");
       $("#pm-pdf").onclick     = () => setPageMode("pdf");
       $("#off-val").onchange = e => {
@@ -1284,7 +1527,7 @@ function afterLoad(){
       S.skipToc = e.target.checked;
       rebuildPrefix();
       renderLevels(); renderManual();
-      if(S.parts.length && S.partsMode === "outline") buildFromOutline(); else renderParts();
+      rebuildCurrent();
       drawBand();
     };
   }
@@ -1353,8 +1596,21 @@ function afterLoad(){
 /* ---- tabs ---- */
 $("#tab-outline").onclick = () => selectTab("outline");
 $("#tab-manual").onclick  = () => selectTab("manual");
+/* Rebuild whatever the open tab shows. The two modes keep their own parts:
+   ranges typed by hand never replace the outline's, and the other way round. */
+function rebuildCurrent(){
+  if(S.tab === "manual" && S.manual.length) return syncManualParts();
+  if(!S.hasText) { S.parts = []; return renderParts(); }
+  if(S.outline.length) buildFromOutline(true); else buildBySize();
+}
+
 function selectTab(which){
   const o = which === "outline";
+  S.tab = which;
+  if(S.pages.length){
+    if(o) rebuildCurrent();
+    else if(S.manual.length) syncManualParts();
+  }
   $("#tab-outline").setAttribute("aria-selected", o);
   $("#tab-manual").setAttribute("aria-selected", !o);
   $("#pane-outline").classList.toggle("hide", !o);
@@ -1437,7 +1693,7 @@ function renderLevels(){
     b.onclick = () => {
       $("#o-level").value = r.L;
       renderLevels();
-      if(S.parts.length && S.partsMode === "outline") buildFromOutline();
+      if(S.tab !== "manual") buildFromOutline(true);
     };
     box.appendChild(b);
   });
@@ -1544,8 +1800,9 @@ function skipped(p){ return S.skipToc && p.isToc; }
 
 function pageRange(a,b){
   const A = showPage(a), B = showPage(b);
-  const front = /^pdf/.test(A) && /^pdf/.test(B);
-  if(front) return a === b ? `PDF page ${a}` : `PDF pages ${a}–${b}`;
+  const fa = /^pdf/.test(A), fb = /^pdf/.test(B);
+  if(fa && fb) return a === b ? `PDF page ${a}` : `PDF pages ${a}–${b}`;
+  if(fa) return `PDF page ${a} – p. ${B}`;      // front matter running into page 1
   return a === b ? `p. ${A}` : `pp. ${A}–${B}`;
 }
 
@@ -1566,6 +1823,21 @@ function runsOfToc(){
    The number in a running header or footer is the page number the reader sees.
    Compare it with the physical position to learn the offset. ---- */
 function detectOffset(){
+  // A PDF that labels its own pages says outright which is printed page 1.
+  // Believe that before guessing from running heads.
+  if(S.pageLabels && S.pageLabels.length === S.pages.length){
+    const lv = new Map(); let numeric = 0;
+    S.pageLabels.forEach((lab,i) => {
+      if(!/^\d{1,5}$/.test(String(lab||"").trim())) return;
+      numeric++;
+      const off = (i+1) - (+lab);
+      lv.set(off, (lv.get(off)||0) + 1);
+    });
+    if(numeric >= S.pages.length * 0.5){
+      const [off, count] = [...lv].sort((a,b) => b[1]-a[1])[0];
+      if(count >= numeric * 0.9) return { offset: off, confidence: count / S.pages.length, source: "labels" };
+    }
+  }
   const votes = new Map();
   S.pages.forEach((p,i) => {
     (p.headFoot||[]).forEach(t => {
@@ -1583,7 +1855,7 @@ function detectOffset(){
   });
   if(!votes.size) return { offset:0, confidence:0 };
   const [off, count] = [...votes].sort((a,b) => b[1]-a[1])[0];
-  return { offset: off, confidence: count / S.pages.length };
+  return { offset: off, confidence: count / S.pages.length, source: "heads" };
 }
 
 function showPageRaw(n){
@@ -1639,7 +1911,7 @@ function setPageMode(m){
 }
 function refreshPages(){
   $("#toc-where").textContent = runsOfToc();
-  renderTree(); renderManual(); renderParts(); drawBand();
+  renderTree(); renderManual(); rebuildCurrent(); drawBand();
 }
 
 /* no headings anywhere — still give the reader something usable */
@@ -1723,9 +1995,8 @@ function applyMax(m, rebuild){
   updateSizeHint();
   renderLevels();
   if(rebuild !== false){
-    if(S.parts.length && S.partsMode === "outline") buildFromOutline(true);
-    else renderParts();
     if(S.manual.length) renderManual();
+    rebuildCurrent();
   }
 }
 
@@ -1733,7 +2004,7 @@ $("#o-max").onchange = e => applyMax(+e.target.value || 9000);
 [...$("#size-chips").children].forEach(b => {
   b.onclick = () => applyMax(+b.dataset.v);
 });
-$("#o-target").onchange = () => { updateSizeHint(); renderLevels(); renderParts(); };
+$("#o-target").onchange = () => { updateSizeHint(); renderLevels(); rebuildCurrent(); };
 
 /* ---- would a different maximum give kinder parts? ---- */
 function renderSizeAdvice(){
@@ -1903,7 +2174,7 @@ function buildFromOutline(quiet){
   // expand anything still too big
   let out = [];
   secs.forEach(s => { out = out.concat(expand(s, opt, 0)); });
-  out = out.filter(p => p.text && p.text.trim().length > 40);
+  out = out.filter(p => realText(p.text).length > 40);
   // descent merges only within a group of siblings; one last sweep over the
   // flat list lets neighbours under different sections pack together too
   if(doMerge) out = mergeSmall(out, opt);
@@ -1956,6 +2227,13 @@ async function scanFigures(){
         if(fn === OPS.save) stack.push(ctm.slice());
         else if(fn === OPS.restore) ctm = stack.pop() || [1,0,0,1,0,0];
         else if(fn === OPS.transform) ctm = mul(ctm, ops.argsArray[k]);
+        // a form XObject draws its contents through its own matrix
+        else if(fn === OPS.paintFormXObjectBegin){
+          stack.push(ctm.slice());
+          const m = ops.argsArray[k] && ops.argsArray[k][0];
+          if(Array.isArray(m) || (m && m.length === 6)) ctm = mul(ctm, Array.from(m));
+        }
+        else if(fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || [1,0,0,1,0,0];
         else if(paint.has(fn)){
           const a = Math.abs(ctm[0]*ctm[3] - ctm[1]*ctm[2]);
           if(a / pageArea >= 0.012){ area += a; count++; }   // ignore icons and rules
@@ -2006,9 +2284,7 @@ function figureCost(){
 
 function rebuildAfterFigures(){
   rebuildPrefix();
-  if(S.parts.length && S.partsMode === "outline") buildFromOutline(true);
-  else if(S.manual.length) renderManual();
-  else renderParts();
+  rebuildCurrent();
 }
 
 function figuresIn(a,b){
@@ -2033,9 +2309,17 @@ function figureNote(pg){
   if(!S.markFigures || !pg.figures) return "";
   return `[figure: page ${pg.n}]`;
 }
+/* Where each page begins inside a part. Without this a part only knows its
+   own range, so nothing in it can be cited by page. */
+function pageMark(pg){
+  if(!S.markPages) return "";
+  return `[p. ${showPage(pg.n)}]`;
+}
 function textOfPages(a,b){
   const out = [];
   S.pages.slice(a-1, b).filter(p => !skipped(p)).forEach(p => {
+    const mark = pageMark(p);
+    if(mark) out.push(mark);
     const note = figureNote(p);
     if(note) out.push(note);
     if(p.text) out.push(p.text);
@@ -2081,6 +2365,11 @@ function mergeSmall(secs, opt){
   return merged;
 }
 
+/* what a part says once its page and figure markers are set aside */
+function realText(t){
+  return (t||"").replace(/\[p\. [^\]]*\]/g, "").replace(/\[figure[^\]]*\]/g, "").trim();
+}
+
 function makeSec(title, path, level, a, b, basis){
   const text = textOfPages(a,b);
   return { title, path, level, startPage:a, endPage:b, text, tokens:estTokens(text), basis };
@@ -2092,6 +2381,8 @@ function blocksOfPages(a,b){
   for(let p=a;p<=b;p++){
     const pg = S.pages[p-1];
     if(!pg || skipped(pg)) continue;
+    const mark = pageMark(pg);
+    if(mark) out.push({ text:mark, page:p });
     const note = figureNote(pg);
     if(note) out.push({ text:note, page:p });
     if(!pg.text) continue;
@@ -2111,7 +2402,10 @@ function expand(s, opt, depth){
   if(s.tokens <= opt.hardMax) return [s];
 
   if(depth < 5){
-    const inner = S.outline.filter(h => h.page > s.startPage && h.page <= s.endPage && h.level > s.level);
+    // Include headings on the section's own first page: a chapter very often
+    // starts on the same page as the section or part that contains it, and
+    // leaving it out hands its text to the section's title.
+    const inner = S.outline.filter(h => h.page >= s.startPage && h.page <= s.endPage && h.level > s.level);
     if(inner.length){
       const lv = Math.min(...inner.map(h => h.level));
       const marks = inner.filter(h => h.level === lv).sort((a,b) => a.page - b.page);
@@ -2250,6 +2544,7 @@ function pageNote(r){
 
 /* rebuild the parts from the rows, without rebuilding the rows */
 function syncManualParts(){
+  if(S.tab !== "manual") return;
   if(!S.manual.length){
     if(S.partsMode === "manual"){ S.parts = []; renderParts(); }
     return;
@@ -2435,7 +2730,7 @@ function renderParts(){
         <p class="crumb"></p>
         <p class="t"></p>
         <p class="inner"></p>
-        <p class="p"><b>pp. ${showPage(p.startPage)}–${showPage(p.endPage)}</b>${(S.pageMode==="printed"&&S.offset)?` <span style="opacity:.7">(pdf ${p.startPage}–${p.endPage})</span>`:""} · ≈${fmt(p.tokens)} tokens · ${fmt(p.text.length)} chars${over?' · <span style="color:var(--rubric)">over the maximum</span>':tiny?' · <span style="color:var(--ink-3)">very small</span>':''}</p>
+        <p class="p"><b>${pageRange(p.startPage, p.endPage)}</b>${(S.pageMode==="printed"&&S.offset)?` <span style="opacity:.7">(pdf ${p.startPage}–${p.endPage})</span>`:""} · ≈${fmt(p.tokens)} tokens · ${fmt(p.text.length)} chars${over?' · <span style="color:var(--rubric)">over the maximum</span>':tiny?' · <span style="color:var(--ink-3)">very small</span>':''}</p>
         <p class="why"><span class="tag"></span></p>
       </div>
       <div class="acts">
@@ -2589,24 +2884,27 @@ async function savePartFigures(p, i, btn){
 /* =========================================================
    export
 ========================================================= */
+/* A heading like "Pain: Pathophysiology and Management" would break a
+   front-matter block left bare, so any text value is written quoted. */
+const yq = v => JSON.stringify(String(v).replace(/\s+/g," ").trim());
 function label(p,i){
   const L = [
     "---",
-    `source: ${S.name}`,
+    `source: ${yq(S.name)}`,
     `part: ${i+1} of ${S.parts.length}`,
-    `title: ${fullTitle(p).replace(/\n/g," ")}`,
+    `title: ${yq(fullTitle(p))}`,
   ];
   if(p.path){
-    L.push(`leaf_title: ${p.title.replace(/\n/g," ")}`);
-    p.path.split("›").forEach((seg,n) => L.push(`level_${n+1}: ${seg.trim()}`));
+    L.push(`leaf_title: ${yq(p.title)}`);
+    p.path.split("›").forEach((seg,n) => L.push(`level_${n+1}: ${yq(seg)}`));
   }
-  if(p.inner) L.push(`opens_at: ${p.inner.replace(/\n/g," ")}`);
+  if(p.inner) L.push(`opens_at: ${yq(p.inner)}`);
   L.push(
-    ...(S.offset
+    ...((S.offset || S.printedFor)
       ? [`pages_printed: ${showPageRaw(p.startPage)}-${showPageRaw(p.endPage)}`,
-         `pages_pdf: ${p.startPage}-${p.endPage}`]
+         `${S.unit === "section" ? "sections" : "pages_pdf"}: ${p.startPage}-${p.endPage}`]
       : [`pages: ${p.startPage}-${p.endPage}`]),
-    `cut_basis: ${p.basis || "unknown"}`,
+    `cut_basis: ${yq(p.basis || "unknown")}`,
     `tokens_est: ${p.tokens}`,
     `characters: ${p.text.length}`,
     `previous: ${i>0 ? fileSlug(S.parts[i-1],i) : "none"}`,
@@ -2664,8 +2962,8 @@ function manifestFile(){
       levels:(p.path ? p.path.split("\u203a").map(x=>x.trim()) : []).concat([p.title]),
       section_path:p.path||null,
       start_page:p.startPage, end_page:p.endPage,
-      start_page_printed:S.offset?showPageRaw(p.startPage):null,
-      end_page_printed:S.offset?showPageRaw(p.endPage):null,
+      start_page_printed:(S.offset||S.printedFor)?showPageRaw(p.startPage):null,
+      end_page_printed:(S.offset||S.printedFor)?showPageRaw(p.endPage):null,
       cut_basis:p.basis||null, opens_at:p.inner||null,
       figure_pages:S.figuresScanned ? figuresIn(p.startPage,p.endPage) : null,
       tokens_est:p.tokens, characters:p.text.length
@@ -2841,4 +3139,10 @@ if(!FEEDBACK.email && !FEEDBACK.issues){
 }
 
 $("#x-format").onchange = () => { renderParts(); figureCost(); };
+S.markPages = true;
+$("#x-pages").onchange = e => {
+  S.markPages = e.target.checked;
+  rebuildPrefix();
+  rebuildCurrent();
+};
 </script>

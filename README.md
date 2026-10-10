@@ -30,9 +30,17 @@ chunkbook/
 - **Labels every part** with its full path — `PART 6 › SECTION 4 › 231 Heart
   Failure` — plus page range, token estimate, and the parts either side. The
   filename carries a compact version of the same chain.
-- **Reconciles page numbers.** Works out the offset between the printed page
-  numbers and the PDF's own numbering by reading the running heads, so ranges
+- **Reconciles page numbers.** Reads the PDF's own page labels when it has
+  them, and otherwise works out the offset from the running heads, so ranges
   match the book's contents page. On Harrison's it finds a 43-page offset.
+  Every page is marked inside the text (`[p. 1514]`) so anything can be cited.
+- **Reads two-column pages in order.** Finds the gutter, reads each column top
+  to bottom, keeps tables that span both columns as whole rows
+  (`Normal saline | 20 mL/kg | IV`), and removes running heads and page
+  numbers wherever on the page they sit.
+- **Joins line-end hyphens the way the book spells the word** — `treat-ment`
+  becomes `treatment`, `beta-blocker` keeps its hyphen — by checking which
+  form appears elsewhere in the book.
 - **Skips contents and index pages**, detected by shape rather than by keyword —
   dot leaders, short lines ending in rising page numbers, or alphabetically
   ordered entries.
@@ -218,7 +226,14 @@ whenever you change anything, so reports say which build they came from.
 - **Heading detection is heuristic** when a book has no built-in contents list.
   It says so plainly when guessing and recommends cutting by hand.
 - **Nothing is saved.** Close the tab and the ranges you typed are gone.
-- **No EPUB yet.** Only PDF, plain text and Markdown.
+- **Three-column pages** are read as if they had at most two columns.
+- **A chapter that starts halfway down a page** takes that whole page; the end
+  of the previous chapter on the same page goes with it.
+- **Figures drawn as vector art** (charts made of lines rather than an embedded
+  picture) are not counted as figures. Embedded images are.
+- **Tables** spanning both columns are kept whole when their cells are spaced
+  apart; tightly ruled tables can still break. For pages where a table matters,
+  export PDF page slices.
 
 ---
 
