@@ -545,7 +545,7 @@ tr.bad td{background:#9e2b2510}
         <option value="txt">Plain text files (.txt)</option>
         <option value="pdf">PDF page slices (.pdf)</option>
       </select>
-      <span class="hint">PDF slices keep the original pages, images and all.</span>
+      <span class="hint">What the ZIP holds. Each part can also be saved either way on its own card.</span>
     </label>
     <label class="field">
       <span style="display:flex;align-items:center;gap:7px"><input type="checkbox" id="x-pages" checked style="width:auto"> Mark each page in the text</span>
@@ -625,7 +625,7 @@ const FEEDBACK = {
   issues: "https://github.com/soroushnajar-arch/signature/issues/new"
 };
 
-const VERSION = "1.2";   // bump this when you change anything
+const VERSION = "1.4";   // bump this when you change anything
 
 /* =========================================================
    ▲▲▲  END OF SETTINGS — nothing below needs editing  ▲▲▲
@@ -816,47 +816,90 @@ async function loadPdf(file){
 
 /* ---- turn pdf.js text items into lines ---- */
 /* Where is the gutter between columns, if there is one?
-   Counted per text row, so a full-width heading crossing the middle does not
-   hide the gutter underneath it. */
+   Measured at 1.5-point resolution: for each vertical strip, how many text
+   rows touch it. The gutter is a deep valley between two well-filled sides.
+   Two things defeated cruder versions of this. Justified books run every line
+   right up to a gutter as narrow as 12 points, so a coarse strip is never
+   empty. And the two columns' lines needn't share baselines, so looking for a
+   gap inside each line finds nothing. Coverage handles both, and full-width
+   headings, tables or figure labels that cross the middle only make the
+   valley shallower, not disappear. */
 function findGutter(items, pageWidth){
-  if(!items.length || !pageWidth) return null;
-  const BINS = 60, binW = pageWidth / BINS;
+  if(items.length < 20) return null;
+  const ext = it => { const x = it.transform[4]; return [x, x + Math.abs(it.width || 0)]; };
+  let minX = Infinity, maxX = -Infinity;
+  items.forEach(it => { const [a,b] = ext(it); if(a < minX) minX = a; if(b > maxX) maxX = b; });
+  const span = maxX - minX;
+  if(span < 200) return null;
+
+  const STEP = 1.5, NB = Math.ceil(span / STEP) + 2;
   const rows = new Map();
   items.forEach(it => {
-    const key = Math.round(it.transform[5] / 6);
-    if(!rows.has(key)) rows.set(key, []);
-    rows.get(key).push(it);
+    const k = Math.round(it.transform[5] / 3);
+    if(!rows.has(k)) rows.set(k, []);
+    rows.get(k).push(ext(it));
   });
-  const total = rows.size;
-  if(total < 10) return null;
 
-  const cover = new Array(BINS).fill(0);
-  rows.forEach(list => {
-    const seen = new Array(BINS).fill(false);
-    list.forEach(it => {
-      const a = Math.max(0, Math.floor(it.transform[4] / binW));
-      const b = Math.min(BINS-1, Math.floor((it.transform[4] + (it.width||0)) / binW));
-      for(let i=a;i<=b;i++) seen[i] = true;
+  // merge each row's pieces (closer than a word space) and count coverage
+  const diff = new Float64Array(NB + 1);
+  const merged = [];
+  rows.forEach(iv => {
+    iv.sort((a,b) => a[0] - b[0]);
+    const m = [];
+    for(const [a,b] of iv){
+      if(m.length && a - m[m.length-1][1] < 4) m[m.length-1][1] = Math.max(m[m.length-1][1], b);
+      else m.push([a,b]);
+    }
+    merged.push(m);
+    m.forEach(([a,b]) => {
+      const g0 = Math.max(0, Math.floor((a - minX) / STEP)), g1 = Math.min(NB-1, Math.floor((b - minX) / STEP));
+      diff[g0]++; diff[g1 + 1]--;
     });
-    seen.forEach((v,i) => { if(v) cover[i]++; });
   });
+  const nRows = rows.size;
+  const cov = new Float64Array(NB);
+  let run = 0;
+  for(let i=0;i<NB;i++){ run += diff[i]; cov[i] = run; }
 
-  const lo = Math.floor(BINS*0.34), hi = Math.ceil(BINS*0.66);
+  // the lowest point in the middle band, and the middle of its plateau
+  const lo = Math.floor(NB * 0.3), hi = Math.ceil(NB * 0.7);
   let best = -1, bestVal = Infinity;
-  for(let i=lo;i<=hi;i++) if(cover[i] < bestVal){ bestVal = cover[i]; best = i; }
-  if(best < 0 || bestVal > total*0.12) return null;
+  for(let i=lo;i<=hi;i++) if(cov[i] < bestVal){ bestVal = cov[i]; best = i; }
+  if(best < 0) return null;
+  let a0 = best, a1 = best;
+  while(a0 > lo && cov[a0-1] === bestVal) a0--;
+  while(a1 < hi && cov[a1+1] === bestVal) a1++;
+  const gi = Math.round((a0 + a1) / 2), gx = minX + gi * STEP;
 
-  // a gutter is only a gutter if both sides carry real text
-  const leftMax  = Math.max(...cover.slice(0, best));
-  const rightMax = Math.max(...cover.slice(best+1));
-  if(leftMax < total*0.35 || rightMax < total*0.35) return null;
-  return (best + 0.5) * binW;
+  // a valley only counts if both sides are far fuller than it is
+  let leftPeak = 0, rightPeak = 0;
+  for(let i=0;i<gi;i++) leftPeak = Math.max(leftPeak, cov[i]);
+  for(let i=gi+1;i<NB;i++) rightPeak = Math.max(rightPeak, cov[i]);
+  if(Math.min(leftPeak, rightPeak) < Math.max(6, nRows * 0.3)) return null;
+  if(bestVal > Math.min(leftPeak, rightPeak) * 0.4) return null;
+
+  // Columns of running text fill their width; the halves of a table, or
+  // labels scattered over a figure, don't. Checked on each side separately,
+  // since the two columns' lines may not share a row.
+  const lw = [], rw = [];
+  merged.forEach(m => {
+    if(m.some(v => v[0] < gx - 1 && v[1] > gx + 1)) return;
+    const L = m.filter(v => v[1] <= gx + 1), R = m.filter(v => v[0] >= gx - 1);
+    if(L.length) lw.push(L[L.length-1][1] - L[0][0]);
+    if(R.length) rw.push(R[R.length-1][1] - R[0][0]);
+  });
+  const med = arr => arr.slice().sort((x,y) => x-y)[Math.floor(arr.length/2)] || 0;
+  if(med(lw) < (gx - minX) * 0.55 || med(rw) < (maxX - gx) * 0.55) return null;
+  return gx;
 }
 
-/* Rows of a table that runs across both columns. A row qualifies when it has
-   cells on both sides of the gutter, a wide gap between cells on one side,
-   and no item long enough to be a line of running text. Two such rows in a
-   row make a table; one on its own is left alone. */
+/* Rows of a table that runs across both columns. Judged on runs of text
+   (items closer than a word space merged), not on single items: some books
+   place every word separately, so "one long item" can't mark running text.
+   A row of two columns of running text is two long runs either side of the
+   gutter. A table row is short runs with wide gaps — a gap that isn't the
+   gutter, or a cell that sits right across it. Two such rows together make a
+   table; one alone is left as it is. */
 function fullWidthTableItems(items, gutter, medH){
   const marked = new Set();
   const tol = Math.max(1.6, medH*0.55);
@@ -867,19 +910,30 @@ function fullWidthTableItems(items, gutter, medH){
     if(last && Math.abs(last.y - it.transform[5]) <= tol) last.items.push(it);
     else rows.push({ y: it.transform[5], items:[it] });
   }
-  const minX = Math.min(...items.map(i => i.transform[4]));
+  const xs = items.map(i => i.transform[4]);
+  const minX = Math.min(...xs);
   const colW = Math.max(60, gutter - minX);
+  const wide = medH * 2.2;
 
   const isTableRow = r => {
     const its = r.items.slice().sort((a,b)=> a.transform[4]-b.transform[4]);
-    const L = its.filter(i => i.transform[4] + (i.width||0) <= gutter + 1);
-    const R = its.filter(i => i.transform[4] >= gutter - 1);
-    if(!L.length || !R.length) return false;
-    if(its.some(i => (i.width||0) > colW*0.6)) return false;
-    const wideGap = side => side.some((it,k) => k > 0 &&
-      it.transform[4] - (side[k-1].transform[4] + (side[k-1].width||0)) > medH*2.2);
-    // (not "many items": some PDFs place every word as its own item)
-    return wideGap(L) || wideGap(R);
+    const runs = [];
+    its.forEach(it => {
+      const a = it.transform[4], b = a + Math.abs(it.width||0);
+      const last = runs[runs.length-1];
+      if(last && a - last.b < Math.max(6, medH*0.6)) last.b = Math.max(last.b, b);
+      else runs.push({ a, b });
+    });
+    if(runs.length < 2) return false;
+    if(runs.some(x => x.b - x.a > colW * 0.62)) return false;          // a line of running text
+    const crosses = runs.some(x => x.a < gutter - 2 && x.b > gutter + 2);
+    const gaps = [];
+    for(let k=1;k<runs.length;k++){
+      const g0 = runs[k-1].b, g1 = runs[k].a;
+      if(g1 - g0 > wide) gaps.push([g0, g1]);
+    }
+    const offGutter = gaps.filter(([g0,g1]) => !(g0 <= gutter && g1 >= gutter)).length;
+    return crosses ? gaps.length >= 1 : offGutter >= 1;
   };
 
   let run = [];
@@ -2736,7 +2790,8 @@ function renderParts(){
       <div class="acts">
         <button class="quiet peek">Preview</button>
         <button class="quiet copy">Copy</button>
-        <button class="quiet dl">Save</button>
+        <button class="quiet dl">Save .md</button>
+        <button class="quiet dlpdf hide">Save PDF</button>
         <button class="quiet figs hide">Figures</button>
       </div>`;
     c.querySelector(".t").textContent = p.title;
@@ -2790,14 +2845,30 @@ function renderParts(){
       }
     };
     c.querySelector(".copy").onclick = async () => {
-      try{ await navigator.clipboard.writeText(fileBody(p,i)); toast("Part "+(i+1)+" copied"); }
+      try{ await navigator.clipboard.writeText(fileBody(p,i,textFmt)); toast("Part "+(i+1)+" copied"); }
       catch(e){ toast("Copy blocked by the browser"); }
     };
-    c.querySelector(".dl").onclick = async () => {
-      const f = $("#x-format").value;
-      if(f === "pdf"){ const bytes = await slicePdf(p); saveBlob(new Blob([bytes],{type:"application/pdf"}), fileSlug(p,i+1)+".pdf"); }
-      else saveBlob(new Blob([fileBody(p,i)],{type:"text/plain;charset=utf-8"}), fileSlug(p,i+1)+"."+f);
-    };
+    // Two ways to save each part, whatever the dropdown says: as text, or as
+    // the original pages. The dropdown only decides what the big ZIP holds.
+    const textFmt = $("#x-format").value === "txt" ? "txt" : "md";
+    const dl = c.querySelector(".dl");
+    dl.textContent = "Save ." + textFmt;
+    dl.title = "This part as text, with its label and page markers";
+    dl.onclick = () => saveBlob(new Blob([fileBody(p,i,textFmt)],{type:"text/plain;charset=utf-8"}), fileSlug(p,i+1)+"."+textFmt);
+
+    const dlp = c.querySelector(".dlpdf");
+    if(S.ext === "pdf" && S.pdfBytes){
+      dlp.classList.remove("hide");
+      dlp.title = `Pages ${pageRange(p.startPage, p.endPage)} cut from the original PDF — tables, columns and figures exactly as printed`;
+      dlp.onclick = async () => {
+        const old = dlp.textContent; dlp.disabled = true; dlp.textContent = "Cutting…";
+        try{
+          const bytes = await slicePdf(p);
+          saveBlob(new Blob([bytes],{type:"application/pdf"}), fileSlug(p,i+1)+".pdf");
+        }catch(e){ console.error(e); toast("Couldn't cut the PDF — see the console"); }
+        dlp.textContent = old; dlp.disabled = false;
+      };
+    }
 
     // this part's figure pages, on their own
     const figBtn = c.querySelector(".figs");
@@ -2915,10 +2986,11 @@ function label(p,i){
   );
   return L.join("\n");
 }
-function fileBody(p,i){
+function fileBody(p,i,fmt){
+  fmt = fmt || ($("#x-format").value === "txt" ? "txt" : "md");
   const head = $("#x-front").checked ? label(p,i) : "";
   const withImgs = S.figuresScanned && $("#fig-imgs") && $("#fig-imgs").checked;
-  const md = $("#x-format").value === "md";
+  const md = fmt === "md";
   let title = "";
   if(md){
     title = `# ${p.title}\n\n`;
@@ -2999,7 +3071,7 @@ $("#x-zip").onclick = async () => {
       const p = S.parts[i];
       btn.textContent = `Packing ${i+1}/${S.parts.length}…`;
       if(f === "pdf") zip.file(fileSlug(p,i+1)+".pdf", await slicePdf(p));
-      else zip.file(fileSlug(p,i+1)+"."+f, fileBody(p,i));
+      else zip.file(fileSlug(p,i+1)+"."+f, fileBody(p,i,f));
       if(i%5===0) await new Promise(r=>setTimeout(r));
     }
     // whole pages that carry a picture, rendered so figures aren't lost
